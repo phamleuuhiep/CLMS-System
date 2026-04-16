@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLMS Dashboard - HCMUT</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.css" />
+    <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.min.js"></script>
+
+    <style>
+        body { margin: 0; font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; background-color: #f4f7f6; }
+        .header { 
+            background: #0A2540; 
+            color: white; 
+            padding: 20px 40px; 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+        .header-title h1 { margin: 0; font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        .header-title p { margin: 5px 0 0 34px; font-size: 13px; color: #adbdcc; }
+        
+        /* Chỉnh lại phần Actions để chứa được cả tên User và nút bấm */
+        .header-actions { display: flex; align-items: center; gap: 15px; } 
+        .header-actions a {
+            color: white; text-decoration: none; font-size: 14px; font-weight: 500;
+            background: rgba(255, 255, 255, 0.1); padding: 8px 16px; border-radius: 6px; transition: 0.2s;
+        }
+        .header-actions a:hover { 
+            background: #ffffff; 
+            color: #0A2540;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        /* Nút Đăng xuất màu đỏ */
+        .logout-btn { background: rgba(231, 76, 60, 0.2) !important; color: #ff7675 !important; }
+        .logout-btn:hover { background: #e74c3c !important; color: white !important; }
+
+        .container { padding: 30px 40px; }
+        .dashboard-frame {
+            width: 100%;
+            height: calc(100vh - 140px);
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(10, 37, 64, 0.08);
+            background: white;
+            z-index: 1; /* Cần thiết cho Leaflet Map không bị đè */
+        }
+        
+        /* Hiệu ứng Pulse cho Icon */
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(99, 91, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0); }
+        }
+        .live-icon {
+            color: #ffffff; background: #635BFF; padding: 8px; border-radius: 50%;
+            font-size: 14px; animation: pulseGlow 2s infinite;
+        }
+
+        /* Giao diện SOS cho Child */
+        .sos-container { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .sos-btn { background: #e74c3c; color: white; border: 8px solid #fadbd8; width: 200px; height: 200px; border-radius: 50%; font-size: 40px; font-weight: 900; cursor: pointer; animation: pulseSOS 2s infinite; transition: 0.3s; }
+        .sos-btn:hover { transform: scale(1.05); }
+        @keyframes pulseSOS { 0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.6); } 70% { box-shadow: 0 0 0 30px rgba(231, 76, 60, 0); } 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); } }
+        .snap-btn { background: #635BFF; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; margin-top: 8px; width: 100%; transition: 0.2s; }
+        .snap-btn:hover { background: #4a42e5; }
+
+        /* ==========================================
+           CUSTOM MODAL (HỘP THOẠI TÙY CHỈNH)
+           ========================================== */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 37, 64, 0.4); backdrop-filter: blur(5px); /* Hiệu ứng mờ nền chuẩn Apple */
+            display: flex; justify-content: center; align-items: center;
+            z-index: 9999; opacity: 0; visibility: hidden; transition: 0.3s ease;
+        }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        
+        .modal-box {
+            background: white; padding: 32px; border-radius: 16px; width: 360px;
+            text-align: center; box-shadow: 0 24px 48px rgba(10, 37, 64, 0.15);
+            transform: translateY(20px) scale(0.95); transition: 0.3s ease;
+        }
+        .modal-overlay.active .modal-box { transform: translateY(0) scale(1); }
+        
+        .modal-icon {
+            width: 64px; height: 64px; background: rgba(99, 91, 255, 0.1);
+            color: #635BFF; border-radius: 50%; display: flex;
+            justify-content: center; align-items: center; font-size: 28px; margin: 0 auto 20px;
+        }
+        .modal-box h3 { color: #0A2540; margin-bottom: 12px; font-size: 20px; }
+        .modal-box p { color: #425466; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+        
+        .modal-actions { display: flex; gap: 12px; }
+        .modal-actions button {
+            flex: 1; padding: 12px; border-radius: 8px; border: none; font-weight: 600;
+            cursor: pointer; transition: 0.2s; font-size: 14px;
+        }
+        .btn-cancel { background: #f4f7f6; color: #425466; }
+        .btn-cancel:hover { background: #e6e8eb; color: #0A2540; }
+        .btn-confirm { background: #635BFF; color: white; box-shadow: 0 4px 12px rgba(99, 91, 255, 0.2); }
+        .btn-confirm:hover { background: #4a42e5; transform: translateY(-2px); }
+
+        /* Khung chọn (Dropdown) nếu có nhiều trẻ */
+        .modal-select {
+            width: 100%; padding: 12px; border: 1px solid #e6e8eb; border-radius: 8px;
+            margin-bottom: 24px; font-family: inherit; font-size: 14px; outline: none; color: #0A2540;
+        }
+        .modal-select:focus { border-color: #635BFF; box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1); }
+
+        /* CSS cho nhóm nhập Bán kính */
+        .input-label { text-align: left; font-size: 12px; color: #425466; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .radius-group { display: flex; gap: 10px; margin-bottom: 24px; }
+        .radius-group input { flex: 2; padding: 12px; border: 1px solid #e6e8eb; border-radius: 8px; font-size: 14px; outline: none; color: #0A2540; font-family: inherit; }
+        .radius-group select { flex: 1; padding: 12px; border: 1px solid #e6e8eb; border-radius: 8px; font-size: 14px; outline: none; background: #f4f7f6; color: #0A2540; font-family: inherit; cursor: pointer; }
+        .radius-group input:focus, .radius-group select:focus { border-color: #635BFF; box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1); }
+
+
+        .main-layout { display: flex; gap: 20px; height: calc(100vh - 140px); }
+        .map-container { flex: 1; border-radius: 12px; box-shadow: 0 8px 24px rgba(10, 37, 64, 0.08); z-index: 1; }
+        
+        /* SIDEBAR STYLE */
+        .notification-sidebar { 
+            width: 350px; background: white; border-radius: 12px; 
+            display: flex; flex-direction: column; overflow: hidden;
+            box-shadow: 0 8px 24px rgba(10, 37, 64, 0.08);
+        }
+        .sidebar-header { 
+            padding: 20px; background: #f8fafc; border-bottom: 1px solid #eef2f6;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .sidebar-header h3 { margin: 0; font-size: 16px; color: #0A2540; }
+        .badge { background: #635BFF; color: white; padding: 2px 8px; border-radius: 20px; font-size: 12px; }
+
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 15px; }
+        
+        /* ITEM STYLE */
+        .notif-item { 
+            display: flex; gap: 12px; padding: 15px; border-radius: 10px; 
+            margin-bottom: 12px; border-left: 4px solid #ddd;
+            transition: 0.2s; background: #fff; border: 1px solid #f0f2f5;
+        }
+        .notif-item:hover { transform: translateX(-5px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .notif-item.warning { border-left-color: #f39c12; background: #fffcf5; }
+        .notif-item.critical { border-left-color: #e74c3c; background: #fff5f5; }
+
+        .notif-icon { font-size: 18px; margin-top: 3px; }
+        .warning .notif-icon { color: #f39c12; }
+        .critical .notif-icon { color: #e74c3c; }
+
+        .notif-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .notif-meta strong { font-size: 14px; color: #0A2540; }
+        .notif-meta span { font-size: 11px; color: #94a3b8; }
+        .notif-body p { margin: 0; font-size: 13px; color: #475569; line-height: 1.4; }
+
+        .empty-state { text-align: center; padding-top: 50px; color: #94a3b8; }
+        .empty-state i { font-size: 40px; margin-bottom: 10px; color: #e2e8f0; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-title">
+            <h1><i class="fas fa-shield-alt live-icon"></i> CLMS Command Center</h1>
+            <p>Children's Location Monitoring System • HCMUT</p>
+        </div>
+        <div class="header-actions">
+            <span style="color: #adbdcc; font-size: 14px; margin-right: 10px;">
+                Hello, <strong style="color: white;"><%= user.name %></strong>
+            </span>
+
+            <% if (user.role === 'parent') { %>
+                <a href="/add-child"><i class="fas fa-plus"></i> Give me the Child Information</a>
+            <% } %>
+
+            <a href="/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        </div>
+    </div>
+    
+    <!-- <div class="container">
+        <% if (user.role === 'parent') { %>
+            <div id="map" class="dashboard-frame"></div>
+            
+        <% } else if (user.role === 'child') { %>
+            <div class="dashboard-frame sos-container">
+                <h2 style="color: #0A2540; margin-bottom: 40px;">EMERGENCY CENTER</h2>
+                <form action="/child/sos" method="POST">
+                    <button type="submit" class="sos-btn">SOS</button>
+                </form>
+                <p style="margin-top: 40px; color: #e74c3c; font-weight: 600;">Tap only in case of real danger!</p>
+            </div>
+        <% } %>
+    </div> -->
+    <div class="container">
+        <% if (user.role === 'parent') { %>
+            <div class="main-layout">
+                <div id="map" class="map-container"></div>
+
+                <div class="notification-sidebar">
+                    <div class="sidebar-header">
+                        <h3><i class="fas fa-bell"></i> Security Logs</h3>
+                        <span class="badge" id="notif-count"><%= notifications.length %></span>
+                    </div>
+                    <div id="notif-list" class="sidebar-content">
+                        <% if (notifications && notifications.length > 0) { %>
+                            <% notifications.forEach(function(n) { %>
+                                <div class="notif-item <%= n.type === 'SOS' ? 'critical' : 'warning' %>">
+                                    <div class="notif-icon">
+                                        <i class="fas <%= n.type === 'SOS' ? 'fa-exclamation-triangle' : 'fa-route' %>"></i>
+                                    </div>
+                                    <div class="notif-body">
+                                        <div class="notif-meta">
+                                            <strong><%= n.name || n.childName %></strong>
+                                            <span><%= n.time %></span>
+                                        </div>
+                                        <p><%= n.message || n.type %></p>
+                                    </div>
+                                </div>
+                            <% }); %>
+                        <% } else { %>
+                            <div class="empty-state">
+                                <i class="fas fa-check-circle"></i>
+                                <p>The system is currently safe</p>
+                            </div>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+        <% } %>
+        </div>
+
+    <div id="custom-modal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-icon"><i id="modal-icon-class" class="fas fa-map-marker-alt"></i></div>
+            <h3 id="modal-title">Confirm</h3>
+            <p id="modal-message">Content</p>
+            <div id="modal-inputs" style="display:none;"></div>
+            <div class="modal-actions">
+                <button id="modal-cancel" class="btn-cancel">Cancel</button>
+                <button id="modal-confirm" class="btn-confirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <% if (user.role === 'parent') { %>
+    <script>
+        // Khởi tạo bản đồ
+        var map = L.map('map').setView([10.772393, 106.658145], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+        
+        // Thước đo tỉ lệ
+        L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);
+
+        const activeMarkers = {};
+        const children = JSON.parse('<%- JSON.stringify(user.linkedChildren || []) %>');
+
+        function createPopupContent(childName, childUsername, statusText) {
+            return `<b>${childName}</b><br>${statusText}<br>
+                    <button class="snap-btn" onclick="setSafeZoneAtChild('${childUsername}')">
+                        <i class="fas fa-crosshairs"></i> Snap Zone Here
+                    </button>`;
+        }
+
+        // Vẽ các bé lên bản đồ
+        children.forEach(c => {
+            let safeCircle = null;
+            if(c.safeZone) {
+                if (c.safeZone.type === 'polygon' && c.safeZone.polygonPoints) {
+                    // Vẽ Đa giác
+                    const points = c.safeZone.polygonPoints.map(p => [p.lat, p.lng]);
+                    safeCircle = L.polygon(points, { color: '#e67e22', fillColor: '#e67e22', fillOpacity: 0.2 }).addTo(map);
+                } else {
+                    // Vẽ Vòng tròn
+                    safeCircle = L.circle([c.safeZone.lat, c.safeZone.lng], { color: '#635BFF', fillColor: '#635BFF', fillOpacity: 0.1, radius: c.safeZone.radius }).addTo(map);
+                }
+            }
+
+            const startLat = c.safeZone ? c.safeZone.lat : 10.772393;
+            const startLng = c.safeZone ? c.safeZone.lng : 106.658145;
+            
+            const marker = L.marker([startLat, startLng]).addTo(map)
+                            .bindPopup(createPopupContent(c.childName, c.childUsername, "Waiting for GPS..."));
+
+            // LƯU CẢ MARKER VÀ VÒNG TRÒN
+            activeMarkers[c.childUsername] = { marker: marker, circle: safeCircle, name: c.childName };
+        });
+
+        // ==========================================
+        // CUSTOM MODAL ĐA NĂNG
+        // ==========================================
+        function showModal(options) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('custom-modal');
+                const title = document.getElementById('modal-title');
+                const message = document.getElementById('modal-message');
+                const icon = document.getElementById('modal-icon-class');
+                const inputs = document.getElementById('modal-inputs');
+                const btnConfirm = document.getElementById('modal-confirm');
+                const btnCancel = document.getElementById('modal-cancel');
+
+                title.innerText = options.title || 'Thiết lập';
+                message.innerHTML = options.message || '';
+                icon.className = options.iconClass || 'fas fa-cog';
+                
+                inputs.innerHTML = '';
+                inputs.style.display = 'block';
+                let html = '';
+
+                // Dropdown chọn bé
+                if (options.choices && options.choices.length > 1) {
+                    html += `<div class="input-label">Select Child:</div><select id="modal-child-select" class="modal-select">`;
+                    options.choices.forEach((c, i) => { html += `<option value="${i}">${c.childName}</option>`; });
+                    html += `</select>`;
+                } else {
+                    html += `<input type="hidden" id="modal-child-select" value="0">`;
+                }
+
+                // Ô nhập Bán kính
+                let defaultRadius = options.defaultRadius || 1000;
+                let defaultUnit = 'm';
+                if (defaultRadius >= 1000 && defaultRadius % 1000 === 0) {
+                    defaultRadius = defaultRadius / 1000;
+                    defaultUnit = 'km';
+                }
+
+                html += `<div class="input-label">Safe Zone Radius:</div>
+                         <div class="radius-group">
+                            <input type="number" id="modal-radius-val" value="${defaultRadius}" min="1" required>
+                            <select id="modal-radius-unit">
+                                <option value="m" ${defaultUnit === 'm' ? 'selected' : ''}>Meters (m)</option>
+                                <option value="km" ${defaultUnit === 'km' ? 'selected' : ''}>Kilometers (km)</option>
+                            </select>
+                         </div>`;
+                inputs.innerHTML = html;
+                modal.classList.add('active');
+
+                const cleanup = () => { modal.classList.remove('active'); };
+                
+                btnConfirm.onclick = () => {
+                    cleanup();
+                    const childIdx = document.getElementById('modal-child-select').value;
+                    const radiusVal = parseFloat(document.getElementById('modal-radius-val').value);
+                    const unit = document.getElementById('modal-radius-unit').value;
+                    const finalRadius = unit === 'km' ? radiusVal * 1000 : radiusVal;
+                    resolve({ confirmed: true, childIndex: childIdx, radius: finalRadius });
+                };
+                
+                btnCancel.onclick = () => { cleanup(); resolve({ confirmed: false }); };
+            });
+        }
+
+
+        // ==========================================
+        // 1. CLICK TO SET
+        // ==========================================
+        map.on('click', async function(e) {
+            if (children.length === 0) return alert("Bạn chưa có thiết bị nào!");
+            const currentRadius = children[0].safeZone ? children[0].safeZone.radius : 1000;
+            const result = await showModal({
+                title: 'Set the Safe Zone',
+                message: 'Change the safe zone center to the selected location and adjust the radius:',
+                iconClass: 'fas fa-draw-polygon', choices: children, defaultRadius: currentRadius
+            });
+
+            if (result.confirmed) {
+                updateSafeZoneAPI(children[result.childIndex].childUsername, e.latlng.lat, e.latlng.lng, result.radius);
+            }
+        });
+
+        // ==========================================
+        // 2. FOLLOW CHILD
+        // ==========================================
+        window.setSafeZoneAtChild = async function(childUsername) {
+            if(activeMarkers[childUsername]) {
+                let pos = activeMarkers[childUsername].marker.getLatLng();
+                const childObj = children.find(c => c.childUsername === childUsername);
+                const currentRadius = childObj.safeZone ? childObj.safeZone.radius : 1000;
+
+                const result = await showModal({
+                    title: 'Follow Child',
+                    message: `Set the current location of the child as the new safe zone center:`,
+                    iconClass: 'fas fa-street-view',
+                    choices: [{childName: childObj.childName, childUsername: childUsername}],
+                    defaultRadius: currentRadius
+                });
+
+                if (result.confirmed) {
+                    updateSafeZoneAPI(childUsername, pos.lat, pos.lng, result.radius);
+                }
+            }
+        };
+
+        // ==========================================
+        // GỌI API BACKEND THẦN TỐC (REAL-TIME)
+        // ==========================================
+        function updateSafeZoneAPI(childUsername, lat, lng, radius) {
+            fetch('/parent/set-geofence-center', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ childUsername, lat, lng, radius }) 
+            }).then(res => {
+                if(res.ok) {
+                    // Dãn/Thu vòng tròn ngay lập tức mà không tải lại trang!
+                    if (activeMarkers[childUsername] && activeMarkers[childUsername].circle) {
+                        const circle = activeMarkers[childUsername].circle;
+                        circle.setLatLng([lat, lng]); 
+                        circle.setRadius(radius);     
+                    } else {
+                        window.location.reload(); // Backup
+                    }
+                } else alert("Error occurred while saving to the server!");
+            });
+        }
+
+        // ==========================================
+        // 3. TÍNH NĂNG VẼ ĐA GIÁC (ZONE-BASED)
+        // ==========================================
+        // Kích hoạt thanh công cụ Geoman
+        map.pm.addControls({
+            position: 'topleft',
+            drawCircle: false, drawMarker: false, drawCircleMarker: false, drawPolyline: false,
+            drawPolygon: true,  // Chỉ bật chức năng vẽ Đa giác
+            drawRectangle: true, // Bật vẽ hình chữ nhật
+            editMode: true, dragMode: true, cutPolygon: false, removalMode: true
+        });
+
+        // Bắt sự kiện khi phụ huynh vẽ xong 1 Đa giác/Hình chữ nhật
+        map.on('pm:create', async (e) => {
+            const layer = e.layer;
+            // Lấy ra mảng các tọa độ cấu thành đa giác
+            const latLngs = layer.getLatLngs()[0]; 
+            const polygonPoints = latLngs.map(p => ({ lat: p.lat, lng: p.lng }));
+
+            // Dùng Custom Modal gọi ra để hỏi lưu cho bé nào
+            if (children.length === 0) {
+                layer.remove(); // Xóa hình vừa vẽ nếu không có bé nào
+                return alert("You have no children linked!");
+            }
+
+            const result = await showModal({
+                title: 'Save new Safe Zone',
+                message: 'You want to apply this polygon as the safe zone for which child?',
+                iconClass: 'fas fa-draw-polygon',
+                choices: children
+            });
+
+            if (result.confirmed) {
+                const childId = children[result.childIndex].childUsername;
+                
+                // Gọi API để lưu Đa giác
+                fetch('/parent/set-geofence', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        childUsername: childId, 
+                        type: 'polygon', 
+                        polygonPoints: polygonPoints 
+                    })
+                }).then(res => {
+                    if(res.ok) window.location.reload();
+                });
+            } else {
+                layer.remove(); 
+            }
+        });
+
+        // ==========================================
+        // SOCKET.IO REAL-TIME
+        // ==========================================
+        const socket = io("http://localhost:3001");
+        socket.on('connect', () => console.log('✅ Connected to CLMS Backend!'));
+
+        socket.on('locationUpdate', (data) => {
+            if (activeMarkers[data.deviceId]) {
+                const childData = activeMarkers[data.deviceId];
+                childData.marker.setLatLng([data.lat, data.lng]);
+                childData.marker.setPopupContent(createPopupContent(childData.name, data.deviceId, "Live: " + data.lat.toFixed(5) + ", " + data.lng.toFixed(5)));
+            }
+        });
+
+        const sirenAudio = new Audio('https://actions.google.com/sounds/v1/alarms/spaceship_alarm.ogg');
+        socket.on('securityAlert', (alertData) => {
+            if (activeMarkers[alertData.deviceId]) {
+                const childData = activeMarkers[alertData.deviceId];
+                childData.marker.setIcon(new L.Icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+                }));
+                childData.marker.setPopupContent(
+                    `<div style="text-align:center;">
+                        <b style="color:#e74c3c; font-size:16px;">🚨 DANGEROUS 🚨</b><br>
+                        <b>${alertData.childName}</b><br><span style="font-size:12px;">Leaves the safe zone!</span>
+                        <button class="snap-btn" onclick="setSafeZoneAtChild('${alertData.deviceId}')">
+                            <i class="fas fa-crosshairs"></i> Snap Zone Here
+                        </button>
+                    </div>`
+                );
+                childData.marker.openPopup();
+                sirenAudio.play().catch(() => console.log("Audio blocked."));
+            }
+
+            
+            const notifList = document.getElementById('notif-list');
+            const emptyState = notifList.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const newNotifHtml = `
+                <div class="notif-item critical">
+                    <div class="notif-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="notif-body">
+                        <div class="notif-meta">
+                            <strong>${alertData.childName}</strong>
+                            <span>${alertData.time}</span>
+                        </div>
+                        <p>${alertData.message}</p>
+                    </div>
+                </div>
+            `;
+            notifList.insertAdjacentHTML('afterbegin', newNotifHtml); // Chèn lên đầu danh sách
+            
+            // Cập nhật con số trên Badge
+            const badge = document.getElementById('notif-count');
+            badge.innerText = parseInt(badge.innerText) + 1;
+        });
+    </script>
+    <% } %>
+</body>
+</html>
