@@ -66,10 +66,16 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const MqttReceiver = require('./ingest/mqttReceiver'); 
+const MqttReceiver = require('./ingest/mqttReceiver');
+const eventBus = require('./events/eventBus');
+const LocationCache = require('./services/locationCache');
+const LocationStore = require('./services/locationStore');
+const RuleRepository = require('./services/ruleRepository');
+const LocationProcessingService = require('./services/locationProcessingService');
 
 const app = express();
-app.use(cors()); 
+app.use(cors());
+app.use(express.json());
 
 const server = http.createServer(app);
 
@@ -81,12 +87,59 @@ const io = new Server(server, {
     }
 });
 
+const locationCache = new LocationCache();
+const locationStore = new LocationStore();
+const ruleRepository = new RuleRepository();
+const locationProcessingService = new LocationProcessingService({
+    io,
+    cache: locationCache,
+    store: locationStore,
+    ruleRepository,
+    eventBus
+});
+
+app.get('/api/health', (req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        mqtt: 'connected_via_runtime_logs',
+        cacheMode: locationCache.mode
+    });
+});
+
+app.get('/api/devices/:deviceId/location', async (req, res) => {
+    const latestLocation = await locationCache.getLatest(req.params.deviceId);
+
+    if (!latestLocation) {
+        return res.status(404).json({ message: 'No location found for this device.' });
+    }
+
+    return res.status(200).json(latestLocation);
+});
+
+app.get('/api/devices/:deviceId/history', (req, res) => {
+    const limit = Number(req.query.limit) || 50;
+    const history = locationStore.getDeviceHistory(req.params.deviceId, Math.min(limit, 200));
+    res.status(200).json(history);
+});
+
+app.get('/api/violations', (req, res) => {
+    const limit = Number(req.query.limit) || 50;
+    const violations = locationStore.getViolations(Math.min(limit, 200));
+    res.status(200).json(violations);
+});
+
+eventBus.on('ruleViolation', (event) => {
+    console.log(`[EventBus] Queued violation event ${event.id} for notification service.`);
+});
 
 // Initialize MQTT listener
-const mqttBrokerUrl = 'mqtt://broker.emqx.io';
-new MqttReceiver(mqttBrokerUrl, io);
+const mqttBrokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://broker.emqx.io';
+locationCache.connect().catch((error) => {
+    console.error('[Cache] Failed to initialize cache:', error.message);
+});
+new MqttReceiver(mqttBrokerUrl, locationProcessingService);
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
     console.log(`[Backend] Core API & Real-time Server running on http://localhost:${PORT}`);
 });

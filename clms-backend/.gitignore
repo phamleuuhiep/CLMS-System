@@ -7,3 +7,6 @@ node_modules/
 
 # Bỏ qua các file log hệ thống
 npm-debug.log*
+
+# Runtime storage for local location history and violations
+data/*.json
