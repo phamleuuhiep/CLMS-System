@@ -12,18 +12,18 @@
 
 // // A simple Health Check API route
 // app.get('/api/health', (req, res) => {
-//     res.status(200).json({ 
-//         status: 'success', 
-//         message: 'CLMS API Gateway is running smoothly.' 
+//     res.status(200).json({
+//         status: 'success',
+//         message: 'CLMS API Gateway is running smoothly.'
 //     });
 // });
 
 // // API receive Arduino Cloud Webhook
 // // app.post('/api/webhook', (req, res) => {
 // //     const data = req.body;
-    
+
 // //     console.log('\n[Webhook] Received data from Arduino Cloud!');
-    
+
 // //     // Arduino usually sends an array of changed variables
 // //     if (data.values && data.values.length > 0) {
 // //         data.values.forEach(item => {
@@ -51,15 +51,6 @@
 // app.listen(PORT, () => {
 //     console.log(`[Server] API Gateway listening on port ${PORT}`);
 // });
-
-
-
-
-
-
-
-
-
 
 
 const express = require('express');
@@ -98,6 +89,8 @@ const locationProcessingService = new LocationProcessingService({
     eventBus
 });
 
+app.locals.locationProcessingService = locationProcessingService;
+
 app.get('/api/health', (req, res) => {
     res.status(200).json({
         status: 'ok',
@@ -126,6 +119,28 @@ app.get('/api/violations', (req, res) => {
     const limit = Number(req.query.limit) || 50;
     const violations = locationStore.getViolations(Math.min(limit, 200));
     res.status(200).json(violations);
+});
+
+app.post('/api/location-data', async (req, res) => {
+    const { deviceId, lat, lng, source = 'http' } = req.body || {};
+
+    if (!deviceId || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+        return res.status(400).json({
+            message: 'deviceId, lat, and lng are required.'
+        });
+    }
+
+    const result = await locationProcessingService.processLocation(
+        deviceId,
+        { lat: Number(lat), lng: Number(lng) },
+        source
+    );
+
+    return res.status(202).json({
+        message: 'Location processed successfully.',
+        violations: result.violations.length,
+        evaluations: result.evaluations
+    });
 });
 
 eventBus.on('ruleViolation', (event) => {
