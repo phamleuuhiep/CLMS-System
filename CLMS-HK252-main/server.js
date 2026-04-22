@@ -141,7 +141,7 @@ app.post('/parent/remove-child', (req, res) => {
     res.redirect('/');
 });
 
-app.post('/parent/set-geofence', (req, res) => {
+app.post('/parent/set-geofence-radius', (req, res) => {
     if (req.session.user?.role !== 'parent') return res.status(403).send('Từ chối.');
     const { childUsername, radius } = req.body;
     const users = getData(USERS_FILE);
@@ -158,7 +158,11 @@ app.post('/parent/set-geofence', (req, res) => {
 app.post('/parent/respond-request', (req, res) => {
     const { requestId, status } = req.body;
     let notifications = getData(NOTIFICATIONS_FILE);
-    const idx = notifications.findIndex(n => n.id == requestId);
+    const normalizedRequestId = Number(requestId);
+    if (Number.isNaN(normalizedRequestId)) {
+        return res.status(400).send('Invalid request id');
+    }
+    const idx = notifications.findIndex(n => n.id === normalizedRequestId);
     if (idx !== -1) { notifications[idx].status = status; saveData(NOTIFICATIONS_FILE, notifications); }
     res.redirect('/');
 });
@@ -188,6 +192,31 @@ app.post('/parent/set-geofence', express.json(), (req, res) => {
                 users[parentIndex].linkedChildren[childIndex].safeZone.polygonPoints = polygonPoints;
             }
             
+            saveData(USERS_FILE, users);
+            req.session.user = users[parentIndex];
+            return res.status(200).send('OK');
+        }
+    }
+    res.status(404).send('Cannot find child or parent');
+});
+
+// Compatibility endpoint for older UI builds.
+app.post('/parent/set-geofence-center', express.json(), (req, res) => {
+    if (req.session.user?.role !== 'parent') return res.status(403).send('Từ chối.');
+
+    const { childUsername, lat, lng, radius } = req.body;
+    const users = getData(USERS_FILE);
+    const parentIndex = users.findIndex(u => u.username === req.session.user.username);
+
+    if (parentIndex !== -1) {
+        const childIndex = users[parentIndex].linkedChildren.findIndex(c => c.childUsername === childUsername);
+        if (childIndex !== -1) {
+            users[parentIndex].linkedChildren[childIndex].safeZone = {
+                type: 'circle',
+                lat: parseFloat(lat),
+                lng: parseFloat(lng),
+                radius: parseInt(radius)
+            };
             saveData(USERS_FILE, users);
             req.session.user = users[parentIndex];
             return res.status(200).send('OK');

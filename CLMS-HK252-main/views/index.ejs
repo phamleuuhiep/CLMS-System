@@ -403,11 +403,15 @@
         // GỌI API BACKEND THẦN TỐC (REAL-TIME)
         // ==========================================
         function updateSafeZoneAPI(childUsername, lat, lng, radius) {
-            fetch('/parent/set-geofence-center', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ childUsername, lat, lng, radius }) 
-            }).then(res => {
-                if(res.ok) {
+            fetch('/parent/set-geofence', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ childUsername, type: 'circle', lat, lng, radius })
+            }).then(async (res) => {
+                if (res.ok) {
+                    triggerImmediateRuleCheck(childUsername);
+
                     // Dãn/Thu vòng tròn ngay lập tức mà không tải lại trang!
                     if (activeMarkers[childUsername] && activeMarkers[childUsername].circle) {
                         const circle = activeMarkers[childUsername].circle;
@@ -416,7 +420,33 @@
                     } else {
                         window.location.reload(); // Backup
                     }
-                } else alert("Error occurred while saving to the server!");
+                    return;
+                }
+
+                const errText = await res.text();
+                throw new Error(`Save failed (${res.status}): ${errText || 'Unknown server error'}`);
+            }).catch((error) => {
+                console.error('Safe-zone save error:', error);
+                alert(error.message || 'Error occurred while saving to the server!');
+            });
+        }
+
+        function triggerImmediateRuleCheck(childUsername) {
+            const childData = activeMarkers[childUsername];
+            if (!childData || !childData.marker) return;
+
+            const pos = childData.marker.getLatLng();
+            fetch('http://localhost:3001/api/location-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    deviceId: childUsername,
+                    lat: pos.lat,
+                    lng: pos.lng,
+                    source: 'ui-safe-zone-update'
+                })
+            }).catch((error) => {
+                console.error('Immediate rule re-check failed:', error);
             });
         }
 
@@ -487,18 +517,32 @@
         });
 
         const sirenAudio = new Audio('https://actions.google.com/sounds/v1/alarms/spaceship_alarm.ogg');
+        function buildAlertIcon() {
+            return new L.Icon({
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+            });
+        }
+        function buildNormalIcon() {
+            return new L.Icon({
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+            });
+        }
         socket.on('securityAlert', (alertData) => {
+            const alertChildName = alertData.childName || alertData.deviceId || 'Unknown';
+            const alertTime = alertData.time
+                || (alertData.occurredAt ? new Date(alertData.occurredAt).toLocaleTimeString() : new Date().toLocaleTimeString());
+
             if (activeMarkers[alertData.deviceId]) {
                 const childData = activeMarkers[alertData.deviceId];
-                childData.marker.setIcon(new L.Icon({
-                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-                    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-                }));
+                childData.marker.setIcon(buildAlertIcon());
                 childData.marker.setPopupContent(
                     `<div style="text-align:center;">
                         <b style="color:#e74c3c; font-size:16px;">🚨 DANGEROUS 🚨</b><br>
-                        <b>${alertData.childName}</b><br><span style="font-size:12px;">Leaves the safe zone!</span>
+                        <b>${alertChildName}</b><br><span style="font-size:12px;">Leaves the safe zone!</span>
                         <button class="snap-btn" onclick="setSafeZoneAtChild('${alertData.deviceId}')">
                             <i class="fas fa-crosshairs"></i> Snap Zone Here
                         </button>
@@ -518,8 +562,8 @@
                     <div class="notif-icon"><i class="fas fa-exclamation-triangle"></i></div>
                     <div class="notif-body">
                         <div class="notif-meta">
-                            <strong>${alertData.childName}</strong>
-                            <span>${alertData.time}</span>
+                            <strong>${alertChildName}</strong>
+                            <span>${alertTime}</span>
                         </div>
                         <p>${alertData.message}</p>
                     </div>
@@ -530,6 +574,44 @@
             // Cập nhật con số trên Badge
             const badge = document.getElementById('notif-count');
             badge.innerText = parseInt(badge.innerText) + 1;
+        });
+
+        socket.on('securitySafe', (safeData) => {
+            if (!activeMarkers[safeData.deviceId]) return;
+
+            const childData = activeMarkers[safeData.deviceId];
+            const childName = childData.name || safeData.childName || safeData.deviceId || 'Unknown';
+            childData.marker.setIcon(buildNormalIcon());
+            childData.marker.setPopupContent(
+                createPopupContent(childData.name, safeData.deviceId, "Back in safe zone")
+            );
+
+            if (!sirenAudio.paused) {
+                sirenAudio.pause();
+                sirenAudio.currentTime = 0;
+            }
+
+            const notifList = document.getElementById('notif-list');
+            const emptyState = notifList.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const safeTime = safeData.time
+                || (safeData.occurredAt ? new Date(safeData.occurredAt).toLocaleTimeString() : new Date().toLocaleTimeString());
+            const safeMessage = `Your child ${childName} is back to the safe zone`;
+
+            const safeNotifHtml = `
+                <div class="notif-item">
+                    <div class="notif-icon"><i class="fas fa-check-circle" style="color:#27ae60;"></i></div>
+                    <div class="notif-body">
+                        <div class="notif-meta">
+                            <strong>${childName}</strong>
+                            <span>${safeTime}</span>
+                        </div>
+                        <p>${safeMessage}</p>
+                    </div>
+                </div>
+            `;
+            notifList.insertAdjacentHTML('afterbegin', safeNotifHtml);
         });
     </script>
     <% } %>

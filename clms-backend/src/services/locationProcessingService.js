@@ -1,14 +1,14 @@
 const RuleEngine = require('../engine/ruleEngine');
 
 class LocationProcessingService {
-    constructor({ io, cache, store, ruleRepository, eventBus, alertCooldownMs = 60000 }) {
+    constructor({ io, cache, store, ruleRepository, eventBus, alertCooldownMs = 30000 }) {
         this.io = io;
         this.cache = cache;
         this.store = store;
         this.ruleRepository = ruleRepository;
         this.eventBus = eventBus;
         this.alertCooldownMs = alertCooldownMs;
-        this.lastViolationByRule = new Map();
+        this.ruleState = new Map();
     }
 
     buildLocationEntry(deviceId, location, source = 'mqtt') {
@@ -22,15 +22,83 @@ class LocationProcessingService {
         };
     }
 
-    shouldEmitViolation(ruleKey, timestamp) {
-        const lastViolation = this.lastViolationByRule.get(ruleKey);
+    getRuleState(ruleKey) {
+        return this.ruleState.get(ruleKey) || {
+            isOutside: false,
+            timerId: null,
+            lastEvent: null
+        };
+    }
 
-        if (!lastViolation || timestamp - lastViolation >= this.alertCooldownMs) {
-            this.lastViolationByRule.set(ruleKey, timestamp);
-            return true;
+    setRuleState(ruleKey, state) {
+        this.ruleState.set(ruleKey, state);
+    }
+
+    emitAlert(event) {
+        this.store.appendViolation(event);
+        this.eventBus.emit('ruleViolation', event);
+
+        if (this.io) {
+            this.io.emit('securityAlert', event);
+        }
+    }
+
+    emitSafeEvent(event) {
+        this.eventBus.emit('ruleSafe', event);
+
+        if (this.io) {
+            this.io.emit('securitySafe', event);
+        }
+    }
+
+    startRepeatTimer(ruleKey) {
+        const state = this.getRuleState(ruleKey);
+        if (state.timerId) {
+            return;
         }
 
-        return false;
+        const timerId = setInterval(() => {
+            const latest = this.getRuleState(ruleKey);
+            if (!latest.isOutside || !latest.lastEvent) {
+                this.stopRepeatTimer(ruleKey);
+                return;
+            }
+
+            const now = Date.now();
+            const repeatedEvent = {
+                ...latest.lastEvent,
+                id: `${ruleKey}:${now}`,
+                occurredAt: new Date(now).toISOString()
+            };
+            this.emitAlert(repeatedEvent);
+            this.setRuleState(ruleKey, {
+                ...latest,
+                timerId,
+                lastEvent: repeatedEvent
+            });
+        }, this.alertCooldownMs);
+        if (typeof timerId.unref === 'function') {
+            timerId.unref();
+        }
+
+        this.setRuleState(ruleKey, {
+            ...state,
+            isOutside: true,
+            timerId
+        });
+    }
+
+    stopRepeatTimer(ruleKey) {
+        const state = this.getRuleState(ruleKey);
+        if (state.timerId) {
+            clearInterval(state.timerId);
+        }
+
+        this.setRuleState(ruleKey, {
+            isOutside: false,
+            timerId: null,
+            lastEvent: null
+        });
     }
 
     async processLocation(deviceId, location, source = 'mqtt') {
@@ -48,14 +116,33 @@ class LocationProcessingService {
         const evaluations = RuleEngine.evaluateRules(location, rules);
         const violations = evaluations.filter((result) => !result.isSafe);
 
+        evaluations.forEach((evaluation) => {
+            const rule = evaluation.rule;
+            if (!rule) return;
+
+            const ruleKey = `${deviceId}:${rule.id}`;
+            if (evaluation.isSafe) {
+                const prevState = this.getRuleState(ruleKey);
+                this.stopRepeatTimer(ruleKey);
+                if (prevState.isOutside) {
+                    this.emitSafeEvent({
+                        id: `${ruleKey}:safe:${Date.now()}`,
+                        type: 'RULE_SAFE',
+                        deviceId,
+                        childName: rule.childName || deviceId,
+                        ruleId: rule.id,
+                        ruleName: rule.name,
+                        occurredAt: new Date().toISOString(),
+                        message: 'Child is back inside the safe zone.'
+                    });
+                }
+            }
+        });
+
         violations.forEach((violation) => {
             const rule = violation.rule;
             const timestamp = Date.now();
             const ruleKey = `${deviceId}:${rule.id}`;
-
-            if (!this.shouldEmitViolation(ruleKey, timestamp)) {
-                return;
-            }
 
             const event = {
                 id: `${ruleKey}:${timestamp}`,
@@ -75,12 +162,21 @@ class LocationProcessingService {
                 occurredAt: new Date(timestamp).toISOString(),
                 message: this.buildViolationMessage(rule, violation)
             };
-
-            this.store.appendViolation(event);
-            this.eventBus.emit('ruleViolation', event);
-
-            if (this.io) {
-                this.io.emit('securityAlert', event);
+            const state = this.getRuleState(ruleKey);
+            if (!state.isOutside) {
+                this.emitAlert(event); // Immediate first alert as soon as child is outside.
+                this.setRuleState(ruleKey, {
+                    isOutside: true,
+                    timerId: state.timerId || null,
+                    lastEvent: event
+                });
+                this.startRepeatTimer(ruleKey); // Repeat every 30 seconds while still outside.
+            } else {
+                // Keep latest context for subsequent repeated alerts.
+                this.setRuleState(ruleKey, {
+                    ...state,
+                    lastEvent: event
+                });
             }
 
             console.warn(`[RuleEngine] Violation detected for device ${deviceId} on rule ${rule.name}`);
