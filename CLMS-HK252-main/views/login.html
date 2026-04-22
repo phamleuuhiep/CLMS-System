@@ -1,0 +1,363 @@
+<!-- <!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đăng nhập - CLMS</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        
+        /* Background tổng thể (Màu tím gradient) */
+        body {
+            background: linear-gradient(135deg, #4e2270 0%, #8b3fa0 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Khung Card chính */
+        .card {
+            width: 400px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Nửa trên của Card (Màu tím) */
+        .card-top {
+            background: linear-gradient(to bottom, rgba(150, 72, 202, 0.9), rgba(139, 21, 172, 0.9));
+            padding: 40px 30px;
+            color: white;
+            position: relative;
+        }
+
+        .card-top h2 { font-size: 22px; margin-bottom: 10px; font-weight: 500; }
+        .card-top p { font-size: 11px; opacity: 0.8; margin-bottom: 30px; line-height: 1.5; }
+        .card-top a.create-acc { color: white; text-decoration: none; font-size: 13px; font-weight: 500; }
+        .card-top a.create-acc:hover { text-decoration: underline; }
+
+        /* Nửa dưới của Card (Màu trắng) */
+        .card-bottom {
+            background: #fdfdfd;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .card-bottom h3 {
+            color: #6a2c91;
+            font-size: 18px;
+            letter-spacing: 1px;
+            margin-bottom: 25px;
+            font-weight: 600;
+        }
+
+        /* Khung nhập liệu có chứa Icon */
+        .input-group {
+            position: relative;
+            margin-bottom: 15px;
+        }
+
+        .input-group i {
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: white;
+            font-size: 14px;
+        }
+
+        /* Style cho ô input (Màu tím nhạt, bo tròn) */
+        .input-group input {
+            width: 100%;
+            padding: 12px 20px 12px 45px;
+            border: none;
+            border-radius: 25px;
+            background: #9e75b8; /* Tím nhạt giống ảnh */
+            color: white;
+            font-size: 14px;
+            outline: none;
+            transition: 0.3s;
+        }
+        
+        .input-group input::placeholder { color: rgba(255, 255, 255, 0.8); }
+        .input-group input:focus { background: #8e62a8; }
+
+        /* Các tùy chọn Remember & Forgot Password */
+        .options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #6a2c91;
+            margin: 20px 0;
+            padding: 0 10px;
+        }
+
+        .options a { color: #6a2c91; text-decoration: none; }
+        .options a:hover { text-decoration: underline; }
+
+        /* Nút đăng nhập */
+        button {
+            background: #8b3fa0;
+            color: white;
+            border: none;
+            padding: 12px 40px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            transition: 0.3s;
+        }
+        
+        button:hover { background: #6a2c91; }
+
+        /* CSS tạo hiệu ứng sao chổi (trang trí thêm cho ngầu) */
+        .shooting-star {
+            position: absolute; width: 2px; height: 2px; background: white; border-radius: 50%;
+            box-shadow: 0 0 10px 2px white; animation: falling 3s infinite linear; opacity: 0;
+        }
+        .shooting-star::before { content: ''; position: absolute; top: 50%; transform: translateY(-50%); width: 30px; height: 1px; background: linear-gradient(90deg, white, transparent); }
+        @keyframes falling {
+            0% { transform: translate(100vw, -50vh) rotate(45deg); opacity: 1; }
+            100% { transform: translate(-50vw, 100vh) rotate(45deg); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="shooting-star" style="top: 10%; left: 80%; animation-delay: 0s;"></div>
+    <div class="shooting-star" style="top: 30%; left: 60%; animation-delay: 1.5s;"></div>
+
+    <div class="card">
+        <div class="card-top">
+            <h2>Welcome to CLMS</h2>
+            <p>Hệ thống giám sát vị trí trẻ em thông minh. Đảm bảo an toàn cho gia đình bạn với công nghệ theo dõi thời gian thực.</p>
+            <a href="/register" class="create-acc">Create Account</a>
+        </div>
+
+        <div class="card-bottom">
+            <h3>USER LOGIN</h3>
+            <form action="/login" method="POST">
+                
+                <div class="input-group">
+                    <i class="fas fa-user"></i>
+                    <input type="text" name="username" placeholder="Username" required>
+                </div>
+                
+                <div class="input-group">
+                    <i class="fas fa-lock"></i>
+                    <input type="password" name="password" placeholder="Password" required>
+                </div>
+
+                <div class="options">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" checked style="accent-color: #6a2c91;"> Remember
+                    </label>
+                    <a href="#">Forgot password?</a>
+                </div>
+
+                <button type="submit">LOGIN</button>
+                
+            </form>
+        </div>
+    </div>
+
+</body>
+</html> -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - CLMS</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; }
+        
+        body {
+            background-color: #f4f7f6;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden; /* Giữ các hiệu ứng nền không bị tràn */
+        }
+
+        /* --- HIỆU ỨNG NỀN ĐỘNG (ANIMATED BACKGROUND) --- */
+        .bg-shape {
+            position: absolute;
+            filter: blur(80px);
+            z-index: 0;
+            opacity: 0.6;
+            animation: float 8s infinite ease-in-out;
+        }
+        .shape1 {
+            background: #635BFF; width: 400px; height: 400px; border-radius: 50%;
+            top: -100px; left: -100px;
+        }
+        .shape2 {
+            background: #00D4FF; width: 300px; height: 300px; border-radius: 50%;
+            bottom: -50px; right: -50px; animation-delay: -4s; /* Chuyển động ngược nhịp */
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(-30px) scale(1.05); }
+            100% { transform: translateY(0px) scale(1); }
+        }
+
+        /* --- HIỆU ỨNG XUẤT HIỆN (ENTRANCE ANIMATION) --- */
+        .card {
+            width: 400px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px); /* Hiệu ứng kính mờ (Glassmorphism) */
+            border-radius: 12px;
+            box-shadow: 0 15px 35px rgba(10, 37, 64, 0.15);
+            overflow: hidden;
+            position: relative;
+            z-index: 10;
+            opacity: 0; /* Bắt đầu tàng hình */
+            animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; /* Trượt lên */
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card-header {
+            background: #0A2540;
+            padding: 40px 30px;
+            text-align: center;
+            color: #ffffff;
+        }
+        .card-header h2 { font-size: 24px; font-weight: 600; margin-bottom: 10px; }
+        .card-header p { font-size: 13px; color: #adbdcc; line-height: 1.5; }
+        .card-body { padding: 30px; }
+        
+        .input-group { position: relative; margin-bottom: 20px; }
+        .input-group i {
+            position: absolute; left: 16px; top: 50%; transform: translateY(-50%); 
+            color: #635BFF; transition: 0.3s;
+        }
+        .input-group input {
+            width: 100%; padding: 14px 14px 14px 45px; border: 2px solid #e6e8eb;
+            border-radius: 8px; font-size: 14px; outline: none; transition: all 0.3s ease;
+            background: transparent;
+        }
+        
+        /* Hiệu ứng Glow Focus khi gõ chữ */
+        .input-group input:focus { 
+            border-color: #635BFF; 
+            box-shadow: 0 0 15px rgba(99, 91, 255, 0.15); 
+            background: #ffffff;
+        }
+        .input-group input:focus + i { color: #4a42e5; transform: translateY(-50%) scale(1.1); } /* Icon to lên nhẹ */
+
+        .options { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-bottom: 25px; }
+        .options a { color: #635BFF; text-decoration: none; font-weight: 500; transition: 0.2s; }
+        .options a:hover { color: #0A2540; }
+
+        /* Nút bấm Hover nổi lên */
+        button {
+            width: 100%; background: #635BFF; color: white; border: none; padding: 14px;
+            border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 600; 
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(99, 91, 255, 0.3);
+        }
+        button:hover { 
+            background: #4a42e5; 
+            transform: translateY(-2px); /* Bay lên nhẹ */
+            box-shadow: 0 6px 15px rgba(99, 91, 255, 0.4); 
+        }
+        button:active { transform: translateY(1px); } /* Bấm xuống */
+
+        .footer-text { text-align: center; margin-top: 20px; font-size: 14px; color: #425466; }
+        .footer-text a { color: #635BFF; text-decoration: none; font-weight: 600; transition: 0.2s; }
+        .footer-text a:hover { color: #0A2540; }
+    </style>
+</head>
+<body>
+    <div class="bg-shape shape1"></div>
+    <div class="bg-shape shape2"></div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Welcome Back</h2>
+            <p>Smart child location tracking system. Secure, reliable, and real-time monitoring.</p>
+        </div>
+        <div class="card-body">
+            <form action="/login" method="POST">
+                <div class="input-group">
+                    <input type="text" name="username" placeholder="Username" required>
+                    <i class="fas fa-user"></i>
+                </div>
+                <div class="input-group">
+                    <input type="password" name="password" placeholder="Password" required>
+                    <i class="fas fa-lock"></i>
+                </div>
+                <div class="options">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #425466;">
+                        <input type="checkbox" checked style="accent-color: #635BFF;"> Remember me
+                    </label>
+                    <a href="#">Forgot password?</a>
+                </div>
+                <button type="submit">Sign In</button>
+            </form>
+            <div class="footer-text">
+                Don't have an account? <a href="/register">Sign up</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

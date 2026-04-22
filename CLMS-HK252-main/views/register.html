@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - CLMS</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; }
+        body { background-color: #f4f7f6; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px 0; }
+        .card { width: 450px; background: #ffffff; border-radius: 12px; box-shadow: 0 8px 24px rgba(10, 37, 64, 0.08); overflow: hidden; }
+        .card-header { background: #0A2540; padding: 30px; text-align: center; color: #ffffff; }
+        .card-header h2 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+        .card-header p { font-size: 13px; color: #adbdcc; }
+        .card-body { padding: 30px; }
+        .input-group { position: relative; margin-bottom: 15px; }
+        .input-group i { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #635BFF; }
+        .input-group input, .input-group select {
+            width: 100%; padding: 12px 14px 12px 45px; border: 1px solid #e6e8eb; border-radius: 8px;
+            font-size: 14px; outline: none; transition: all 0.2s ease; appearance: none; color: #425466;
+        }
+        .input-group input:focus, .input-group select:focus { border-color: #635BFF; box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1); }
+        .select-arrow { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: #425466; pointer-events: none; }
+        button {
+            width: 100%; background: #635BFF; color: white; border: none; padding: 14px; margin-top: 10px;
+            border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 600; transition: background 0.2s;
+        }
+        button:hover { background: #4a42e5; }
+        .footer-text { text-align: center; margin-top: 20px; font-size: 14px; color: #425466; }
+        .footer-text a { color: #635BFF; text-decoration: none; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <h2>Create an Account</h2>
+            <p>Start monitoring and protecting your family today.</p>
+        </div>
+        <div class="card-body">
+            <form action="/register" method="POST">
+                <div class="input-group"><i class="fas fa-id-badge"></i><input type="text" name="name" placeholder="Full Name" required></div>
+                <div class="input-group"><i class="fas fa-user-circle"></i><input type="text" name="username" placeholder="Username" required></div>
+                <div class="input-group"><i class="fas fa-envelope"></i><input type="email" name="email" placeholder="Email Address" required></div>
+                <div class="input-group"><i class="fas fa-phone"></i><input type="tel" name="phone" placeholder="Parent's Phone Number" required></div>
+                <div class="input-group">
+                    <i class="fas fa-users"></i>
+                    <select name="role" required>
+                        <option value="" disabled selected>Select Role</option>
+                        <option value="parent">Parent</option>
+                        <option value="child">Child</option>
+                    </select>
+                    <i class="fas fa-caret-down select-arrow"></i>
+                </div>
+                <div class="input-group"><i class="fas fa-lock"></i><input type="password" name="password" placeholder="Password" required></div>
+                <div class="input-group"><i class="fas fa-check-circle"></i><input type="password" name="confirmPassword" placeholder="Confirm Password" required></div>
+                <button type="submit">Register</button>
+            </form>
+            <div class="footer-text">
+                Already have an account? <a href="/login">Sign in</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
