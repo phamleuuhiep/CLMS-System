@@ -248,9 +248,16 @@ app.post('/child/request-move', (req, res) => {
 // ==========================================
 app.get('/', (req, res) => {
     if (!req.session.user) return res.redirect('/login');
-    const user = req.session.user;
     const users = getData(USERS_FILE);
     const notifications = getData(NOTIFICATIONS_FILE);
+    const user = users.find(u => u.username === req.session.user.username);
+
+    if (!user) {
+        req.session.destroy();
+        return res.redirect('/login');
+    }
+
+    req.session.user = user;
 
     res.render('index', { 
         user: user, 

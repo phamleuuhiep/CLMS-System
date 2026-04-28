@@ -254,7 +254,9 @@
     <% if (user.role === 'parent') { %>
     <script>
         // Khởi tạo bản đồ
-        var map = L.map('map').setView([10.772393, 106.658145], 14);
+        const DEFAULT_MAP_CENTER = [10.772393, 106.658145];
+        const BACKEND_API_URL = 'http://localhost:3001';
+        var map = L.map('map').setView(DEFAULT_MAP_CENTER, 14);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
         
         // Thước đo tỉ lệ
@@ -263,6 +265,80 @@
         const activeMarkers = {};
         const children = JSON.parse('<%- JSON.stringify(user.linkedChildren || []) %>');
 
+        function isValidCoordinate(lat, lng) {
+            return Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+        }
+
+        function getPolygonPoints(safeZone) {
+            if (!safeZone || !Array.isArray(safeZone.polygonPoints)) return [];
+
+            return safeZone.polygonPoints
+                .map(p => ({ lat: Number(p.lat), lng: Number(p.lng) }))
+                .filter(p => isValidCoordinate(p.lat, p.lng));
+        }
+
+        function getSafeZoneCenter(safeZone) {
+            if (!safeZone) return DEFAULT_MAP_CENTER;
+
+            if (safeZone.type === 'polygon') {
+                const points = getPolygonPoints(safeZone).map(p => [p.lat, p.lng]);
+                if (points.length >= 3) {
+                    const center = L.latLngBounds(points).getCenter();
+                    return [center.lat, center.lng];
+                }
+            }
+
+            if (isValidCoordinate(safeZone.lat, safeZone.lng)) {
+                return [Number(safeZone.lat), Number(safeZone.lng)];
+            }
+
+            return DEFAULT_MAP_CENTER;
+        }
+
+        function createSafeZoneLayer(safeZone) {
+            if (!safeZone) return null;
+
+            if (safeZone.type === 'polygon') {
+                const points = getPolygonPoints(safeZone).map(p => [p.lat, p.lng]);
+                if (points.length >= 3) {
+                    return L.polygon(points, { color: '#e67e22', fillColor: '#e67e22', fillOpacity: 0.2 });
+                }
+                return null;
+            }
+
+            if (isValidCoordinate(safeZone.lat, safeZone.lng)) {
+                return L.circle([Number(safeZone.lat), Number(safeZone.lng)], {
+                    color: '#635BFF',
+                    fillColor: '#635BFF',
+                    fillOpacity: 0.1,
+                    radius: Number(safeZone.radius) || 1000
+                });
+            }
+
+            return null;
+        }
+
+        function replaceSafeZoneLayer(childUsername, safeZone, drawnLayer = null) {
+            const childData = activeMarkers[childUsername];
+            if (!childData) return;
+
+            if (childData.zoneLayer && childData.zoneLayer !== drawnLayer) {
+                map.removeLayer(childData.zoneLayer);
+            }
+
+            const nextLayer = drawnLayer || createSafeZoneLayer(safeZone);
+            if (nextLayer) {
+                if (safeZone.type === 'polygon') {
+                    nextLayer.setStyle({ color: '#e67e22', fillColor: '#e67e22', fillOpacity: 0.2 });
+                }
+                if (!map.hasLayer(nextLayer)) {
+                    nextLayer.addTo(map);
+                }
+            }
+
+            childData.zoneLayer = nextLayer;
+        }
+
         function createPopupContent(childName, childUsername, statusText) {
             return `<b>${childName}</b><br>${statusText}<br>
                     <button class="snap-btn" onclick="setSafeZoneAtChild('${childUsername}')">
@@ -270,29 +346,71 @@
                     </button>`;
         }
 
+        function updateMarkerLocation(childUsername, lat, lng, statusText) {
+            if (!isValidCoordinate(lat, lng) || !activeMarkers[childUsername]) return false;
+
+            const childData = activeMarkers[childUsername];
+            const nextLat = Number(lat);
+            const nextLng = Number(lng);
+            childData.marker.setLatLng([nextLat, nextLng]);
+            childData.marker.setPopupContent(
+                createPopupContent(
+                    childData.name,
+                    childUsername,
+                    statusText || `Live: ${nextLat.toFixed(5)}, ${nextLng.toFixed(5)}`
+                )
+            );
+            return true;
+        }
+
+        async function fetchLatestChildLocation(childUsername) {
+            try {
+                const res = await fetch(`${BACKEND_API_URL}/api/devices/${encodeURIComponent(childUsername)}/location`);
+                if (!res.ok) return null;
+
+                const data = await res.json();
+                if (!isValidCoordinate(data.lat, data.lng)) return null;
+
+                return {
+                    lat: Number(data.lat),
+                    lng: Number(data.lng),
+                    isDeviceDetected: Boolean(data.isDeviceDetected)
+                };
+            } catch (error) {
+                console.warn('Cannot load latest child location:', error);
+                return null;
+            }
+        }
+
+        function refreshLatestChildLocations() {
+            children.forEach(async (child) => {
+                const latest = await fetchLatestChildLocation(child.childUsername);
+                if (!latest) return;
+
+                updateMarkerLocation(
+                    child.childUsername,
+                    latest.lat,
+                    latest.lng,
+                    `${latest.isDeviceDetected ? 'Live' : 'Last known'}: ${latest.lat.toFixed(5)}, ${latest.lng.toFixed(5)}`
+                );
+            });
+        }
+
         // Vẽ các bé lên bản đồ
         children.forEach(c => {
-            let safeCircle = null;
-            if(c.safeZone) {
-                if (c.safeZone.type === 'polygon' && c.safeZone.polygonPoints) {
-                    // Vẽ Đa giác
-                    const points = c.safeZone.polygonPoints.map(p => [p.lat, p.lng]);
-                    safeCircle = L.polygon(points, { color: '#e67e22', fillColor: '#e67e22', fillOpacity: 0.2 }).addTo(map);
-                } else {
-                    // Vẽ Vòng tròn
-                    safeCircle = L.circle([c.safeZone.lat, c.safeZone.lng], { color: '#635BFF', fillColor: '#635BFF', fillOpacity: 0.1, radius: c.safeZone.radius }).addTo(map);
-                }
+            let safeZoneLayer = createSafeZoneLayer(c.safeZone);
+            if (safeZoneLayer) {
+                safeZoneLayer.addTo(map);
             }
-
-            const startLat = c.safeZone ? c.safeZone.lat : 10.772393;
-            const startLng = c.safeZone ? c.safeZone.lng : 106.658145;
+            const [startLat, startLng] = getSafeZoneCenter(c.safeZone);
             
             const marker = L.marker([startLat, startLng]).addTo(map)
                             .bindPopup(createPopupContent(c.childName, c.childUsername, "Waiting for GPS..."));
 
-            // LƯU CẢ MARKER VÀ VÒNG TRÒN
-            activeMarkers[c.childUsername] = { marker: marker, circle: safeCircle, name: c.childName };
+            // Lưu marker và safe-zone layer, dù layer đó là vòng tròn hay đa giác.
+            activeMarkers[c.childUsername] = { marker: marker, zoneLayer: safeZoneLayer, name: c.childName };
         });
+        refreshLatestChildLocations();
 
         // ==========================================
         // CUSTOM MODAL ĐA NĂNG
@@ -324,22 +442,25 @@
                     html += `<input type="hidden" id="modal-child-select" value="0">`;
                 }
 
-                // Ô nhập Bán kính
-                let defaultRadius = options.defaultRadius || 1000;
-                let defaultUnit = 'm';
-                if (defaultRadius >= 1000 && defaultRadius % 1000 === 0) {
-                    defaultRadius = defaultRadius / 1000;
-                    defaultUnit = 'km';
-                }
+                const showRadius = options.showRadius !== false;
+                if (showRadius) {
+                    // Ô nhập Bán kính
+                    let defaultRadius = options.defaultRadius || 1000;
+                    let defaultUnit = 'm';
+                    if (defaultRadius >= 1000 && defaultRadius % 1000 === 0) {
+                        defaultRadius = defaultRadius / 1000;
+                        defaultUnit = 'km';
+                    }
 
-                html += `<div class="input-label">Safe Zone Radius:</div>
-                         <div class="radius-group">
-                            <input type="number" id="modal-radius-val" value="${defaultRadius}" min="1" required>
-                            <select id="modal-radius-unit">
-                                <option value="m" ${defaultUnit === 'm' ? 'selected' : ''}>Meters (m)</option>
-                                <option value="km" ${defaultUnit === 'km' ? 'selected' : ''}>Kilometers (km)</option>
-                            </select>
-                         </div>`;
+                    html += `<div class="input-label">Safe Zone Radius:</div>
+                             <div class="radius-group">
+                                <input type="number" id="modal-radius-val" value="${defaultRadius}" min="1" required>
+                                <select id="modal-radius-unit">
+                                    <option value="m" ${defaultUnit === 'm' ? 'selected' : ''}>Meters (m)</option>
+                                    <option value="km" ${defaultUnit === 'km' ? 'selected' : ''}>Kilometers (km)</option>
+                                </select>
+                             </div>`;
+                }
                 inputs.innerHTML = html;
                 modal.classList.add('active');
 
@@ -348,9 +469,12 @@
                 btnConfirm.onclick = () => {
                     cleanup();
                     const childIdx = document.getElementById('modal-child-select').value;
-                    const radiusVal = parseFloat(document.getElementById('modal-radius-val').value);
-                    const unit = document.getElementById('modal-radius-unit').value;
-                    const finalRadius = unit === 'km' ? radiusVal * 1000 : radiusVal;
+                    let finalRadius = null;
+                    if (showRadius) {
+                        const radiusVal = parseFloat(document.getElementById('modal-radius-val').value);
+                        const unit = document.getElementById('modal-radius-unit').value;
+                        finalRadius = unit === 'km' ? radiusVal * 1000 : radiusVal;
+                    }
                     resolve({ confirmed: true, childIndex: childIdx, radius: finalRadius });
                 };
                 
@@ -410,16 +534,15 @@
                 body: JSON.stringify({ childUsername, type: 'circle', lat, lng, radius })
             }).then(async (res) => {
                 if (res.ok) {
+                    const safeZone = { type: 'circle', lat, lng, radius };
+                    const childObj = children.find(c => c.childUsername === childUsername);
+                    if (childObj) {
+                        childObj.safeZone = safeZone;
+                    }
                     triggerImmediateRuleCheck(childUsername);
 
-                    // Dãn/Thu vòng tròn ngay lập tức mà không tải lại trang!
-                    if (activeMarkers[childUsername] && activeMarkers[childUsername].circle) {
-                        const circle = activeMarkers[childUsername].circle;
-                        circle.setLatLng([lat, lng]); 
-                        circle.setRadius(radius);     
-                    } else {
-                        window.location.reload(); // Backup
-                    }
+                    // Cập nhật safe zone ngay lập tức, kể cả khi trước đó đang là polygon.
+                    replaceSafeZoneLayer(childUsername, safeZone);
                     return;
                 }
 
@@ -431,20 +554,31 @@
             });
         }
 
-        function triggerImmediateRuleCheck(childUsername) {
+        async function triggerImmediateRuleCheck(childUsername) {
             const childData = activeMarkers[childUsername];
             if (!childData || !childData.marker) return;
 
-            const pos = childData.marker.getLatLng();
-            fetch('http://localhost:3001/api/location-data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    deviceId: childUsername,
-                    lat: pos.lat,
-                    lng: pos.lng,
-                    source: 'ui-safe-zone-update'
-                })
+            const latest = await fetchLatestChildLocation(childUsername);
+            if (latest) {
+                updateMarkerLocation(
+                    childUsername,
+                    latest.lat,
+                    latest.lng,
+                    `${latest.isDeviceDetected ? 'Live' : 'Last known'}: ${latest.lat.toFixed(5)}, ${latest.lng.toFixed(5)}`
+                );
+            }
+
+            fetch(`${BACKEND_API_URL}/api/devices/${encodeURIComponent(childUsername)}/recheck`, {
+                method: 'POST'
+            }).then(async (res) => {
+                if (res.ok) return;
+                if (res.status === 404) {
+                    alert('No child location has been detected yet, so the safe zone cannot be checked.');
+                    return;
+                }
+
+                const errText = await res.text();
+                throw new Error(`Re-check failed (${res.status}): ${errText || 'Unknown server error'}`);
             }).catch((error) => {
                 console.error('Immediate rule re-check failed:', error);
             });
@@ -479,23 +613,39 @@
                 title: 'Save new Safe Zone',
                 message: 'You want to apply this polygon as the safe zone for which child?',
                 iconClass: 'fas fa-draw-polygon',
-                choices: children
+                choices: children,
+                showRadius: false
             });
 
             if (result.confirmed) {
-                const childId = children[result.childIndex].childUsername;
+                const childObj = children[result.childIndex];
+                const childId = childObj.childUsername;
                 
                 // Gọi API để lưu Đa giác
                 fetch('/parent/set-geofence', {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         childUsername: childId, 
                         type: 'polygon', 
                         polygonPoints: polygonPoints 
                     })
-                }).then(res => {
-                    if(res.ok) window.location.reload();
+                }).then(async (res) => {
+                    if (res.ok) {
+                        const safeZone = { type: 'polygon', polygonPoints };
+                        childObj.safeZone = safeZone;
+                        replaceSafeZoneLayer(childId, safeZone, layer);
+                        triggerImmediateRuleCheck(childId);
+                        return;
+                    }
+
+                    const errText = await res.text();
+                    throw new Error(`Save failed (${res.status}): ${errText || 'Unknown server error'}`);
+                }).catch((error) => {
+                    console.error('Polygon safe-zone save error:', error);
+                    layer.remove();
+                    alert(error.message || 'Error occurred while saving to the server!');
                 });
             } else {
                 layer.remove(); 
@@ -505,15 +655,11 @@
         // ==========================================
         // SOCKET.IO REAL-TIME
         // ==========================================
-        const socket = io("http://localhost:3001");
+        const socket = io(BACKEND_API_URL);
         socket.on('connect', () => console.log('✅ Connected to CLMS Backend!'));
 
         socket.on('locationUpdate', (data) => {
-            if (activeMarkers[data.deviceId]) {
-                const childData = activeMarkers[data.deviceId];
-                childData.marker.setLatLng([data.lat, data.lng]);
-                childData.marker.setPopupContent(createPopupContent(childData.name, data.deviceId, "Live: " + data.lat.toFixed(5) + ", " + data.lng.toFixed(5)));
-            }
+            updateMarkerLocation(data.deviceId, data.lat, data.lng, "Live: " + data.lat.toFixed(5) + ", " + data.lng.toFixed(5));
         });
 
         const sirenAudio = new Audio('https://actions.google.com/sounds/v1/alarms/spaceship_alarm.ogg');
