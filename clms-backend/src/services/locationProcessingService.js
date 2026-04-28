@@ -51,6 +51,33 @@ class LocationProcessingService {
         }
     }
 
+    getRepeatEvaluation(ruleKey, state) {
+        const previousEvent = state.lastEvent;
+        const deviceId = previousEvent?.deviceId || ruleKey.split(':')[0];
+        const location = previousEvent?.location;
+
+        if (!deviceId || !RuleEngine.isValidLocation(location)) {
+            return { action: 'stop' };
+        }
+
+        const evaluations = RuleEngine.evaluateRules(
+            { lat: Number(location.lat), lng: Number(location.lng) },
+            this.ruleRepository.getRulesForDevice(deviceId)
+        );
+        const matchingEvaluation = evaluations.find((evaluation) => evaluation.rule.id === previousEvent.ruleId);
+
+        if (!matchingEvaluation) {
+            const hasActiveViolation = evaluations.some((evaluation) => !evaluation.isSafe);
+            return { action: hasActiveViolation ? 'stop' : 'safe' };
+        }
+
+        if (matchingEvaluation.isSafe) {
+            return { action: 'safe', evaluation: matchingEvaluation };
+        }
+
+        return { action: 'repeat', evaluation: matchingEvaluation };
+    }
+
     startRepeatTimer(ruleKey) {
         const state = this.getRuleState(ruleKey);
         if (state.timerId) {
@@ -64,12 +91,30 @@ class LocationProcessingService {
                 return;
             }
 
+            const repeatEvaluation = this.getRepeatEvaluation(ruleKey, latest);
+            if (repeatEvaluation.action === 'safe') {
+                this.stopRepeatTimer(ruleKey);
+                this.emitSafeForClearedRule(latest.lastEvent.deviceId, { ruleKey, state: latest });
+                return;
+            }
+
+            if (repeatEvaluation.action !== 'repeat') {
+                this.stopRepeatTimer(ruleKey);
+                return;
+            }
+
+            const rule = repeatEvaluation.evaluation.rule;
             const now = Date.now();
             const repeatedEvent = {
                 ...latest.lastEvent,
                 id: `${ruleKey}:${now}`,
+                ruleName: rule.name,
+                ruleType: rule.type,
+                distance: repeatEvaluation.evaluation.distance || null,
+                reason: repeatEvaluation.evaluation.reason,
                 occurredAt: new Date(now).toISOString()
             };
+            repeatedEvent.message = this.buildViolationMessage(rule, repeatEvaluation.evaluation);
             this.emitAlert(repeatedEvent);
             this.setRuleState(ruleKey, {
                 ...latest,
@@ -101,6 +146,38 @@ class LocationProcessingService {
         });
     }
 
+    emitSafeForClearedRule(deviceId, clearedState) {
+        const previousEvent = clearedState.state.lastEvent || {};
+
+        this.emitSafeEvent({
+            id: `${clearedState.ruleKey}:safe:${Date.now()}`,
+            type: 'RULE_SAFE',
+            deviceId,
+            childName: previousEvent.childName || deviceId,
+            ruleId: previousEvent.ruleId || clearedState.ruleKey.replace(`${deviceId}:`, ''),
+            ruleName: previousEvent.ruleName || 'Previous safe zone',
+            occurredAt: new Date().toISOString(),
+            message: 'Child is inside the active safe zone.'
+        });
+    }
+
+    clearInactiveRuleStates(deviceId, activeRuleKeys) {
+        const rulePrefix = `${deviceId}:`;
+        const clearedOutsideStates = [];
+
+        Array.from(this.ruleState.keys())
+            .filter((ruleKey) => ruleKey.startsWith(rulePrefix) && !activeRuleKeys.has(ruleKey))
+            .forEach((ruleKey) => {
+                const state = this.getRuleState(ruleKey);
+                if (state.isOutside) {
+                    clearedOutsideStates.push({ ruleKey, state });
+                }
+                this.stopRepeatTimer(ruleKey);
+            });
+
+        return clearedOutsideStates;
+    }
+
     async processLocation(deviceId, location, source = 'mqtt') {
         const entry = this.buildLocationEntry(deviceId, location, source);
 
@@ -114,7 +191,19 @@ class LocationProcessingService {
 
         const rules = this.ruleRepository.getRulesForDevice(deviceId);
         const evaluations = RuleEngine.evaluateRules(location, rules);
+        const activeRuleKeys = new Set(
+            evaluations
+                .filter((evaluation) => evaluation.rule)
+                .map((evaluation) => `${deviceId}:${evaluation.rule.id}`)
+        );
+        const clearedOutsideStates = this.clearInactiveRuleStates(deviceId, activeRuleKeys);
         const violations = evaluations.filter((result) => !result.isSafe);
+
+        if (violations.length === 0) {
+            clearedOutsideStates.forEach((clearedState) => {
+                this.emitSafeForClearedRule(deviceId, clearedState);
+            });
+        }
 
         evaluations.forEach((evaluation) => {
             const rule = evaluation.rule;

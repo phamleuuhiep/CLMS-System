@@ -91,6 +91,34 @@ const locationProcessingService = new LocationProcessingService({
 
 app.locals.locationProcessingService = locationProcessingService;
 
+const NON_DEVICE_LOCATION_SOURCES = new Set(['ui-safe-zone-update', 'rule-recheck']);
+const IGNORED_LATEST_LOCATION_SOURCES = new Set(['rule-recheck']);
+
+function isDeviceDetectedLocation(location) {
+    return location
+        && Number.isFinite(Number(location.lat))
+        && Number.isFinite(Number(location.lng))
+        && !NON_DEVICE_LOCATION_SOURCES.has(location.source);
+}
+
+function isLatestKnownLocation(location) {
+    return location
+        && Number.isFinite(Number(location.lat))
+        && Number.isFinite(Number(location.lng))
+        && !IGNORED_LATEST_LOCATION_SOURCES.has(location.source);
+}
+
+async function getLatestKnownLocation(deviceId) {
+    const cachedLocation = await locationCache.getLatest(deviceId);
+    if (isLatestKnownLocation(cachedLocation)) {
+        return cachedLocation;
+    }
+
+    return locationStore
+        .getDeviceHistory(deviceId, 200)
+        .find((entry) => isLatestKnownLocation(entry)) || null;
+}
+
 app.get('/api/health', (req, res) => {
     res.status(200).json({
         status: 'ok',
@@ -100,13 +128,40 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/api/devices/:deviceId/location', async (req, res) => {
-    const latestLocation = await locationCache.getLatest(req.params.deviceId);
+    const latestLocation = await getLatestKnownLocation(req.params.deviceId);
 
     if (!latestLocation) {
         return res.status(404).json({ message: 'No location found for this device.' });
     }
 
-    return res.status(200).json(latestLocation);
+    return res.status(200).json({
+        ...latestLocation,
+        isDeviceDetected: isDeviceDetectedLocation(latestLocation)
+    });
+});
+
+app.post('/api/devices/:deviceId/recheck', async (req, res) => {
+    const latestLocation = await getLatestKnownLocation(req.params.deviceId);
+
+    if (!latestLocation) {
+        return res.status(404).json({
+            message: 'No known location found for this device.'
+        });
+    }
+
+    const result = await locationProcessingService.processLocation(
+        req.params.deviceId,
+        { lat: Number(latestLocation.lat), lng: Number(latestLocation.lng) },
+        'rule-recheck'
+    );
+
+    return res.status(202).json({
+        message: 'Latest device location rechecked successfully.',
+        locationSource: latestLocation.source || null,
+        isDeviceDetected: isDeviceDetectedLocation(latestLocation),
+        violations: result.violations.length,
+        evaluations: result.evaluations
+    });
 });
 
 app.get('/api/devices/:deviceId/history', (req, res) => {
