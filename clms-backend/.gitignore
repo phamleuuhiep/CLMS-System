@@ -6,7 +6,11 @@ node_modules/
 .env.*
 
 # Bỏ qua các file log hệ thống
+<<<<<<< HEAD
 npm-debug.log*
 
 # Runtime storage for local location history and violations
 data/*.json
+=======
+npm-debug.log*
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef

@@ -1,6 +1,7 @@
 const geolib = require('geolib');
 
 class RuleEngine {
+<<<<<<< HEAD
     static isValidLocation(location) {
         return Number.isFinite(location?.lat) && Number.isFinite(location?.lng);
     }
@@ -65,11 +66,22 @@ class RuleEngine {
             return true;
         }
 
+=======
+    /**
+     Feature 1: Point-based radius monitoring (Geofencing with a circular area)
+        * Returns true if the child is safe (within the area), false if in violation (outside the area)
+     */
+    static checkCircleGeofence(currentLocation, centerPoint, radiusInMeters) {
+        if (!currentLocation || !centerPoint || !radiusInMeters) return true; // Skip check if any parameter is missing
+
+        // Calculate the actual distance using the Haversine formula
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef
         const distance = geolib.getDistance(
             { latitude: currentLocation.lat, longitude: currentLocation.lng },
             { latitude: centerPoint.lat, longitude: centerPoint.lng }
         );
 
+<<<<<<< HEAD
         return distance <= radiusInMeters;
     }
 
@@ -77,12 +89,26 @@ class RuleEngine {
         if (!this.isValidLocation(currentLocation) || !zoneBounds) {
             return true;
         }
+=======
+        // The child is safe if the current distance is <= the allowed radius
+        return distance <= radiusInMeters;
+    }
+
+    /**
+     * Feature 2: Zone-based geofencing (Geofencing with a rectangular area)
+     * Returns true if the child is safe (within the area), false if in violation (outside the area)
+     */
+    static checkRectangleGeofence(currentLocation, zoneBounds) {
+        // zoneBounds has the format: { minLat, maxLat, minLng, maxLng }
+        if (!currentLocation || !zoneBounds) return true;
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef
 
         const isInsideLat = currentLocation.lat >= zoneBounds.minLat && currentLocation.lat <= zoneBounds.maxLat;
         const isInsideLng = currentLocation.lng >= zoneBounds.minLng && currentLocation.lng <= zoneBounds.maxLng;
 
         return isInsideLat && isInsideLng;
     }
+<<<<<<< HEAD
 
     static checkPolygonGeofence(currentLocation, polygonPoints) {
         if (!this.isValidLocation(currentLocation) || !Array.isArray(polygonPoints) || polygonPoints.length < 3) {
@@ -153,3 +179,20 @@ class RuleEngine {
 }
 
 module.exports = RuleEngine;
+=======
+    static checkPolygonGeofence(currentLocation, polygonPoints) {
+        if (!currentLocation || !polygonPoints || polygonPoints.length < 3) return true;
+
+        const formattedPolygon = polygonPoints.map(p => ({
+            latitude: p.lat,
+            longitude: p.lng
+        }));
+
+        const point = { latitude: currentLocation.lat, longitude: currentLocation.lng };
+
+        return geolib.isPointInPolygon(point, formattedPolygon);
+    }
+}
+
+module.exports = RuleEngine;
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef

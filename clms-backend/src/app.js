@@ -12,18 +12,30 @@
 
 // // A simple Health Check API route
 // app.get('/api/health', (req, res) => {
+<<<<<<< HEAD
 //     res.status(200).json({
 //         status: 'success',
 //         message: 'CLMS API Gateway is running smoothly.'
+=======
+//     res.status(200).json({ 
+//         status: 'success', 
+//         message: 'CLMS API Gateway is running smoothly.' 
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef
 //     });
 // });
 
 // // API receive Arduino Cloud Webhook
 // // app.post('/api/webhook', (req, res) => {
 // //     const data = req.body;
+<<<<<<< HEAD
 
 // //     console.log('\n[Webhook] Received data from Arduino Cloud!');
 
+=======
+    
+// //     console.log('\n[Webhook] Received data from Arduino Cloud!');
+    
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef
 // //     // Arduino usually sends an array of changed variables
 // //     if (data.values && data.values.length > 0) {
 // //         data.values.forEach(item => {
@@ -53,10 +65,23 @@
 // });
 
 
+<<<<<<< HEAD
+=======
+
+
+
+
+
+
+
+
+
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+<<<<<<< HEAD
 const MqttReceiver = require('./ingest/mqttReceiver');
 const eventBus = require('./events/eventBus');
 const LocationCache = require('./services/locationCache');
@@ -67,6 +92,12 @@ const LocationProcessingService = require('./services/locationProcessingService'
 const app = express();
 app.use(cors());
 app.use(express.json());
+=======
+const MqttReceiver = require('./ingest/mqttReceiver'); 
+
+const app = express();
+app.use(cors()); 
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef
 
 const server = http.createServer(app);
 
@@ -78,6 +109,7 @@ const io = new Server(server, {
     }
 });
 
+<<<<<<< HEAD
 const locationCache = new LocationCache();
 const locationStore = new LocationStore();
 const ruleRepository = new RuleRepository();
@@ -213,3 +245,14 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
     console.log(`[Backend] Core API & Real-time Server running on http://localhost:${PORT}`);
 });
+=======
+
+// Initialize MQTT listener
+const mqttBrokerUrl = 'mqtt://broker.emqx.io';
+new MqttReceiver(mqttBrokerUrl, io);
+
+const PORT = 3001;
+server.listen(PORT, () => {
+    console.log(`[Backend] Core API & Real-time Server running on http://localhost:${PORT}`);
+});
+>>>>>>> dfefe637f2940579f6eaee372ca3de2a185b62ef
