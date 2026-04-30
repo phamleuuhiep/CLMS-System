@@ -4,8 +4,8 @@ const session = require('express-session');
 const mongoose = require('mongoose'); // Import Mongoose thay cho fs
 
 // Import Models (Đảm bảo bạn đã tạo 2 file này trong thư mục models)
-const User = require('./models/User');
-const Notification = require('./models/Notification');
+const User = require('./models/User.js');
+const Notification = require('./models/Notification.js');
 
 const app = express();
 app.set('view engine', 'ejs');
@@ -37,18 +37,56 @@ app.get('/login', (req, res) => res.sendFile(__dirname + '/views/login.html'));
 app.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
-        // Tìm User trong Database
-        const user = await User.findOne({ username: username, password: password });
+        
+        // Hàm tạo giao diện thông báo xịn xò (dùng lại giống hệt bên Register)
+        const sendBeautifulAlert = (icon, title, text, redirect) => {
+            res.send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+                    <style>body { font-family: 'Inter', sans-serif; background: #f4f7f6; }</style>
+                </head>
+                <body>
+                    <script>
+                        Swal.fire({
+                            icon: '${icon}',
+                            title: '${title}',
+                            text: '${text}',
+                            confirmButtonColor: '#635BFF',
+                            confirmButtonText: 'Try Again'
+                        }).then(() => {
+                            window.location = "${redirect}";
+                        });
+                    </script>
+                </body>
+                </html>
+            `);
+        };
+
+        // 1. Tìm User bằng username
+        const user = await User.findOne({ username: username });
         
         if (user) { 
-            req.session.user = user; 
-            res.redirect('/'); 
+            // 2. Dùng bcrypt đối chiếu mật khẩu
+            const isMatch = await bcrypt.compare(password, user.password);
+
+            if (isMatch) {
+                req.session.user = user; 
+                res.redirect('/'); // Đăng nhập thành công thì vào thẳng Dashboard
+            } else {
+                // UI Báo lỗi sai mật khẩu
+                return sendBeautifulAlert('error', 'Login Failed', 'Incorrect password! Please try again.', '/login');
+            }
         } else { 
-            res.send('<script>alert("Sai tài khoản!"); window.location="/login";</script>'); 
+            // UI Báo lỗi không tìm thấy tài khoản (Account does not exist)
+            return sendBeautifulAlert('warning', 'Not Found', 'Account does not exist!', '/login');
         }
     } catch (error) {
         console.error(error);
-        res.status(500).send('Lỗi Server');
+        res.status(500).send('Server Error');
     }
 });
 
