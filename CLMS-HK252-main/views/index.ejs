@@ -11,6 +11,7 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.css" />
     <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <style>
         body { margin: 0; font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; background-color: #f4f7f6; }
@@ -150,8 +151,30 @@
     <div class="container">
         <% if (user.role === 'parent') { %>
             <div class="main-layout">
-                <div id="map" class="map-container"></div>
+                
+                <!-- CỘT TRÁI: BẢNG ĐIỀU KHIỂN & BẢN ĐỒ -->
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 15px;">
+                    
+                    <!-- THANH ĐIỀU KHIỂN NẰM NGOÀI BẢN ĐỒ -->
+                    <div style="background: white; padding: 16px 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(10, 37, 64, 0.08); display: flex; align-items: center; justify-content: space-between;">
+                        <h3 style="margin: 0; color: #0A2540; font-size: 16px;">
+                            <i class="fas fa-sliders-h" style="color: #635BFF; margin-right: 8px;"></i> Geofence Control
+                        </h3>
+                        <div>
+                            <label for="geofenceMode" style="font-weight: 600; margin-right: 10px; font-size: 14px; color: #425466;">Control Mode:</label>
+                            <select id="geofenceMode" onchange="switchMode()" style="padding: 8px 16px; border-radius: 8px; border: 1px solid #e6e8eb; outline: none; font-family: inherit; font-size: 14px; color: #0A2540; background-color: #f8fafc; cursor: pointer;">
+                                <option value="circle">Point-based Mode</option>
+                                <option value="polygon">Zone-based Mode</option>
+                            </select>
+                        </div>
+                    </div>
 
+                    <!-- KHU VỰC BẢN ĐỒ -->
+                    <div id="map" class="map-container" style="flex: 1; width: 100%;"></div>
+                
+                </div>
+
+                <!-- CỘT PHẢI: KHU VỰC THANH THÔNG BÁO -->
                 <div class="notification-sidebar">
                     <div class="sidebar-header">
                         <h3><i class="fas fa-bell"></i> Security Logs</h3>
@@ -279,7 +302,9 @@
             activeMarkers[c.childUsername] = { marker: marker, circle: safeCircle, name: c.childName };
         });
 
-        // MODAL CONFIG
+        // ==========================================
+        // 1. CẤU HÌNH HỘP THOẠI (MODAL) VÀ API
+        // ==========================================
         function showModal(options) {
             return new Promise((resolve) => {
                 const modal = document.getElementById('custom-modal');
@@ -339,23 +364,11 @@
             });
         }
 
-        map.on('click', async function(e) {
-            if (children.length === 0) return alert("Bạn chưa có thiết bị nào!");
-            const currentRadius = children[0].safeZone ? children[0].safeZone.radius : 1000;
-            const result = await showModal({
-                title: 'Set the Safe Zone',
-                message: 'Change the safe zone center to the selected location and adjust the radius:',
-                iconClass: 'fas fa-draw-polygon', choices: children, defaultRadius: currentRadius
-            });
-
-            if (result.confirmed) updateSafeZoneAPI(children[result.childIndex].childUsername, e.latlng.lat, e.latlng.lng, result.radius);
-        });
-
         window.setSafeZoneAtChild = async function(childUsername) {
             if(activeMarkers[childUsername]) {
                 let pos = activeMarkers[childUsername].marker.getLatLng();
                 const childObj = children.find(c => c.childUsername === childUsername);
-                const currentRadius = childObj.safeZone ? childObj.safeZone.radius : 1000;
+                const currentRadius = childObj.safeZone && childObj.safeZone.radius ? childObj.safeZone.radius : 1000;
 
                 const result = await showModal({
                     title: 'Follow Child',
@@ -375,23 +388,75 @@
                 body: JSON.stringify({ childUsername, type: 'circle', lat, lng, radius }) 
             }).then(res => {
                 if(res.ok) {
-                    if (activeMarkers[childUsername] && activeMarkers[childUsername].circle) {
-                        const circle = activeMarkers[childUsername].circle;
-                        circle.setLatLng([lat, lng]); 
-                        circle.setRadius(radius);     
-                    } else {
-                        window.location.reload(); 
-                    }
+                    window.location.reload(); 
                 } else alert("Error occurred while saving to the server!");
             });
         }
 
-        map.pm.addControls({
-            position: 'topleft',
-            drawCircle: false, drawMarker: false, drawCircleMarker: false, drawPolyline: false,
-            drawPolygon: true, drawRectangle: true, editMode: true, dragMode: true, cutPolygon: false, removalMode: true
+        // KHÔI PHỤC: QUẢN LÝ CHẾ ĐỘ POINT / ZONE VỚI GEOMAN
+        // ==========================================
+        let currentMode = 'circle';
+
+        window.switchMode = function() {
+            currentMode = document.getElementById('geofenceMode').value;
+            
+            if (currentMode === 'polygon') {
+                // Bật công cụ vẽ bên trái khi chọn Zone
+                map.pm.addControls({
+                    position: 'topleft',
+                    drawCircle: false, drawMarker: false, drawCircleMarker: false, drawPolyline: false,
+                    drawPolygon: true, drawRectangle: true, editMode: true, dragMode: true, cutPolygon: false, removalMode: true
+                });
+            } else {
+                // Ẩn công cụ vẽ khi ở chế độ Point
+                map.pm.removeControls();
+            }
+        };
+
+        // Gọi hàm để thiết lập trạng thái ban đầu
+        setTimeout(switchMode, 100);
+
+        // ==========================================
+        // 2. XỬ LÝ SỰ KIỆN CLICK BẢN ĐỒ (NGUYÊN BẢN)
+        // ==========================================
+        map.on('click', async function(e) {
+            // Hiển thị SweetAlert nếu chưa có thiết bị nào
+            if (children.length === 0) {
+                return Swal.fire({
+                    icon: 'warning',
+                    title: 'There are no devices!',
+                    text: 'You have not linked any child devices yet. Please add a child device to set up a safe zone.',
+                    confirmButtonColor: '#635BFF',
+                    confirmButtonText: 'Add Child Device',
+                    showCancelButton: true,
+                    cancelButtonColor: '#e74c3c',
+                    cancelButtonText: 'Cancel'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        window.location.href = '/add-child';
+                    }
+                });
+            }
+
+            // Gọi Modal thiết lập Vùng an toàn hình tròn
+            const currentRadius = children[0].safeZone && children[0].safeZone.radius ? children[0].safeZone.radius : 1000;
+            
+            const result = await showModal({
+                title: 'Set the Safe Zone',
+                message: 'Change the safe zone center to the selected location and adjust the radius:',
+                iconClass: 'fas fa-map-marker-alt', 
+                choices: children, 
+                defaultRadius: currentRadius
+            });
+
+            if (result.confirmed) {
+                updateSafeZoneAPI(children[result.childIndex].childUsername, e.latlng.lat, e.latlng.lng, result.radius);
+            }
         });
 
+        // ==========================================
+        // XỬ LÝ SỰ KIỆN VẼ XONG ĐA GIÁC (GEOMAN)
+        // ==========================================
         map.on('pm:create', async (e) => {
             const layer = e.layer;
             const latLngs = layer.getLatLngs()[0]; 
@@ -399,12 +464,12 @@
 
             if (children.length === 0) {
                 layer.remove(); 
-                return alert("You have no children linked!");
+                return Swal.fire({ icon: 'error', title: 'Oops...', text: 'There are no devices linked!' });
             }
 
             const result = await showModal({
-                title: 'Save new Safe Zone',
-                message: 'You want to apply this polygon as the safe zone for which child?',
+                title: 'Save Safe Zone Polygon',
+                message: 'Would you like to set this polygon as the new safe zone for your child?',
                 iconClass: 'fas fa-draw-polygon', choices: children
             });
 
@@ -418,6 +483,7 @@
                 });
             } else { layer.remove(); }
         });
+        
 
         const socket = io("http://localhost:3001");
         socket.on('connect', () => console.log('✅ Connected to CLMS Backend!'));

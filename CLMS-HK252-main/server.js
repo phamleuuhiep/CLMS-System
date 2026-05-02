@@ -2,7 +2,9 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const mongoose = require('mongoose'); // Import Mongoose thay cho fs
-
+const https = require('https');
+const fs = require('fs');
+const bcrypt = require('bcryptjs');
 // Import Models (Đảm bảo bạn đã tạo 2 file này trong thư mục models)
 const User = require('./models/User.js');
 const Notification = require('./models/Notification.js');
@@ -17,7 +19,7 @@ const PORT = 3000;
 // ==========================================
 const DB_URI = 'mongodb://huuhiep2701_db_user:g8FsEU4xOAkvbR3R@ac-vflx34e-shard-00-00.rbu8rbb.mongodb.net:27017,ac-vflx34e-shard-00-01.rbu8rbb.mongodb.net:27017,ac-vflx34e-shard-00-02.rbu8rbb.mongodb.net:27017/clms_db?ssl=true&replicaSet=atlas-xv471f-shard-0&authSource=admin&appName=Cluster0';
 mongoose.connect(DB_URI)
-    .then(() => console.log('✅ [MQTT Backend] Successfully connected to MongoDB Cloud!'))
+    .then(() => console.log('✅ [MongoDB] Connected Successfully with TLS 1.2+!'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -128,6 +130,20 @@ app.post('/register', async (req, res) => {
         if (role === 'admin') {
             return sendBeautifulAlert('error', 'Invalid Role', 'Cannot register as Admin publicly.', '/register');
         }
+
+        // ==========================================
+        // TÍNH NĂNG MỚI: KIỂM TRA ĐỘ MẠNH MẬT KHẨU
+        // ==========================================
+        const passwordRegex = /^(?=.*[A-Z]).{10,}$/;
+        if (!passwordRegex.test(password)) {
+            return sendBeautifulAlert(
+                'warning', 
+                'Weak Password', 
+                'Password must be at least 10 characters long and contain at least one uppercase letter!', 
+                '/register'
+            );
+        }
+
         if (password !== confirmPassword) {
             return sendBeautifulAlert('warning', 'Wrong Password', 'Confirm password does not match.', '/register');
         }
@@ -204,10 +220,10 @@ app.post('/parent/add-child', async (req, res) => {
     const { childName, childPhone, deviceId } = req.body; 
     
     const parent = await User.findOne({ username: req.session.user.username });
-    if (!parent) return res.status(404).send('Không tìm thấy phụ huynh');
+    if (!parent) return res.status(404).send('Cannot find parent');
 
     if (parent.linkedChildren.find(c => c.childUsername === deviceId)) {
-        return res.send('<script>alert("Thiết bị này đã được liên kết rồi!"); window.location="/";</script>');
+        return res.send('<script>alert("This device is already linked!"); window.location="/";</script>');
     }
     
     parent.linkedChildren.push({ 
@@ -268,37 +284,37 @@ app.post('/parent/set-geofence', async (req, res) => {
 });
 
 // ==========================================
-// 5. API DÀNH CHO CHILD (TRẺ EM)
-// ==========================================
-app.post('/child/sos', async (req, res) => {
-    if (req.session.user?.role !== 'child') return res.status(403).send('Từ chối.');
+// // 5. API DÀNH CHO CHILD (TRẺ EM)
+// // ==========================================
+// app.post('/child/sos', async (req, res) => {
+//     if (req.session.user?.role !== 'child') return res.status(403).send('Từ chối.');
     
-    const newAlert = new Notification({
-        type: 'SOS',
-        childName: req.session.user.name,
-        message: 'Trẻ đang gặp nguy hiểm (SOS)',
-        time: new Date().toLocaleString(),
-        status: 'Critical'
-    });
-    await newAlert.save();
+//     const newAlert = new Notification({
+//         type: 'SOS',
+//         childName: req.session.user.name,
+//         message: 'Trẻ đang gặp nguy hiểm (SOS)',
+//         time: new Date().toLocaleString(),
+//         status: 'Critical'
+//     });
+//     await newAlert.save();
     
-    res.send('<script>alert("SOS signal sent to parents!"); window.location="/";</script>');
-});
+//     res.send('<script>alert("SOS signal sent to parents!"); window.location="/";</script>');
+// });
 
-app.post('/child/request-move', async (req, res) => {
-    const { destination } = req.body;
+// app.post('/child/request-move', async (req, res) => {
+//     const { destination } = req.body;
     
-    const newReq = new Notification({
-        type: 'Request',
-        childName: req.session.user.name,
-        message: `Request to move to: ${destination}`,
-        time: new Date().toLocaleString(),
-        status: 'Pending'
-    });
-    await newReq.save();
+//     const newReq = new Notification({
+//         type: 'Request',
+//         childName: req.session.user.name,
+//         message: `Request to move to: ${destination}`,
+//         time: new Date().toLocaleString(),
+//         status: 'Pending'
+//     });
+//     await newReq.save();
     
-    res.send('<script>alert("Request sent!"); window.location="/";</script>');
-});
+//     res.send('<script>alert("Request sent!"); window.location="/";</script>');
+// });
 
 // ==========================================
 // 6. TRANG CHỦ DASHBOARD (GIAO DIỆN CHÍNH)
@@ -328,4 +344,28 @@ app.get('/', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`[Frontend] CLMS Web UI Running: http://localhost:${PORT}`));
+// app.listen(PORT, () => console.log(`[Frontend] CLMS Web UI Running: http://localhost:${PORT}`));
+// ==========================================
+// KHỞI CHẠY SERVER VỚI BẢO MẬT TLS 1.2+
+// ==========================================
+try {
+    // Cấu hình chứng chỉ SSL và giới hạn TLS
+    const httpsOptions = {
+        key: fs.readFileSync('key.pem'),   // File khóa bí mật
+        cert: fs.readFileSync('cert.pem'), // File chứng chỉ SSL
+        minVersion: 'TLSv1.2'              // Bắt buộc sử dụng TLS 1.2 trở lên
+    };
+
+    // Khởi chạy server HTTPS
+    https.createServer(httpsOptions, app).listen(PORT, () => {
+        console.log(`🔒 [Frontend] CLMS Web UI Đang chạy an toàn (HTTPS/TLS 1.2+): https://localhost:${PORT}`);
+    });
+} catch (error) {
+    // Tính năng dự phòng: Nếu máy local chưa có file chứng chỉ thì chạy HTTP tạm thời
+    console.warn('⚠️ Warning: Cannot find SSL certificate files (key.pem, cert.pem).');
+    console.warn('⚠️ Server is running in fallback mode (HTTP): http://localhost:${PORT}');
+    
+    app.listen(PORT, () => {
+        console.log(`[Frontend] CLMS Web UI Running: http://localhost:${PORT}`);
+    });
+}

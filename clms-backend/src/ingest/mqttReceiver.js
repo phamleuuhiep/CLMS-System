@@ -29,79 +29,117 @@ class MqttReceiver {
         // 3. THÊM TỪ KHÓA 'async' VÀO ĐÂY ĐỂ DÙNG MONGODB
         this.client.on('message', async (topic, message) => {
             try {
+                // In ra topic và tin nhắn thô để kiểm tra xem server có nhận được gì không
+                console.log(`[MQTT Debug] Nhận tin nhắn từ topic: ${topic}`);
+                
                 const topicParts = topic.split('/');
-                const deviceId = topicParts[2];
+                
+                // GIẢI QUYẾT LỖI 2: Lấy Device ID chuẩn xác
+                // Nếu topic là 'owntracks/clms/device123', thì deviceId nằm ở vị trí số 2
+                const deviceId = topicParts[2]; 
+                
+                if (!deviceId) {
+                    console.log('[MQTT Warning] Không tìm thấy Device ID trong topic.');
+                    return;
+                }
+
                 const payload = JSON.parse(message.toString());
                 
-                if (payload._type === 'location') {
-                    const currentLocation = { lat: payload.lat, lng: payload.lon };
-                    console.log(`[Ingest] 🟢 Device [${deviceId}] coordinates: ${currentLocation.lat}, ${currentLocation.lng}`);
+                // GIẢI QUYẾT LỖI 1: Lấy đúng biến Kinh độ (Hỗ trợ cả 'lon' và 'lng')
+                const deviceLng = payload.lng !== undefined ? payload.lng : payload.lon;
+
+                // 1. Kiểm tra xem payload có chứa tọa độ không
+                if (payload.lat !== undefined && deviceLng !== undefined) {
                     
-                    // GỬI TỌA ĐỘ REAL-TIME LÊN FRONTEND
-                    if (this.io) {
-                        this.io.emit('locationUpdate', {
-                            deviceId: deviceId,
-                            lat: currentLocation.lat,
-                            lng: currentLocation.lng
-                        });
+                    // Ép kiểu chuỗi văn bản thành số thập phân
+                    const lat = parseFloat(payload.lat);
+                    const lng = parseFloat(deviceLng);
+
+                    // ==========================================
+                    // BỘ LỌC BẢO VỆ DỮ LIỆU GPS (Filter valid GPS)
+                    // ==========================================
+                    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                        console.error(`[Ingest] 🔴 Skip [${deviceId}]. lat: ${payload.lat}, lng: ${deviceLng}`);
+                        return; // Dừng lại ngay lập tức
                     }
 
-                    // =========================================
-                    // 4. LOGIC TÌM KIẾM BẰNG MONGODB (THAY THẾ ĐỌC FILE USERS.JSON)
-                    // =========================================
-                    // Tìm người phụ huynh nào đang liên kết với thiết bị (deviceId) này
-                    const parent = await User.findOne({ "linkedChildren.childUsername": deviceId });
-                    
-                    if (parent) {
-                        const child = parent.linkedChildren.find(c => c.childUsername === deviceId);
+                    console.log(`[Ingest] 🟢 Valid coordinates [${deviceId}]: ${lat}, ${lng}`);
+
+                    // 2. Xử lý cập nhật vị trí
+                    // (Nếu dùng OwnTracks, thiết bị sẽ tự gửi _type là 'location')
+                    if (payload._type === 'location' || payload._type === undefined) {
                         
-                        if (child && child.safeZone) {
-                            let isSafe = true;
-                            let alertMessage = '';
+                        const currentLocation = { lat: lat, lng: lng }; 
+                        
+                        // GỬI TỌA ĐỘ REAL-TIME LÊN FRONTEND
+                        if (this.io) {
+                            this.io.emit('locationUpdate', {
+                                deviceId: deviceId,
+                                lat: currentLocation.lat,
+                                lng: currentLocation.lng
+                            });
+                        }
 
-                            if (child.safeZone.type === 'polygon' && child.safeZone.polygonPoints) {
-                                isSafe = RuleEngine.checkPolygonGeofence(currentLocation, child.safeZone.polygonPoints);
-                                alertMessage = `Violation detected: Child has left the safe polygon zone.`;
-                            } else {
-                                const radius = child.safeZone.radius || 1000;
-                                isSafe = RuleEngine.checkCircleGeofence(currentLocation, child.safeZone, radius);
-                                alertMessage = `Violation detected: Child has left the safe radius (${radius}m).`;
-                            }
+                        // =========================================
+                        // 4. LOGIC TÌM KIẾM BẰNG MONGODB
+                        // =========================================
+                        const parent = await User.findOne({ "linkedChildren.childUsername": deviceId });
+                        
+                        if (parent) {
+                            const child = parent.linkedChildren.find(c => c.childUsername === deviceId);
+                            
+                            if (child && child.safeZone) {
+                                let isSafe = true;
+                                let alertMessage = '';
 
-                            // KÍCH HOẠT BÁO ĐỘNG NẾU VI PHẠM
-                            if (!isSafe) {
-                                console.log(`[ALERT] 🔴 WARNING: The child ${child.childName} has left the safe zone!`);
-                                
-                                if (this.io) {
-                                    this.io.emit('securityAlert', {
-                                        deviceId: deviceId,
-                                        childName: child.childName,
-                                        message: alertMessage,
-                                        time: new Date().toLocaleTimeString()
-                                    });
+                                if (child.safeZone.type === 'polygon' && child.safeZone.polygonPoints && child.safeZone.polygonPoints.length > 0) {
+                                    isSafe = RuleEngine.checkPolygonGeofence(currentLocation, child.safeZone.polygonPoints);
+                                    alertMessage = `Child has left the safe polygon area!`;
+                                } else if (child.safeZone.type === 'circle' && child.safeZone.lat && child.safeZone.lng) {
+                                    const radius = child.safeZone.radius || 1000;
+                                    isSafe = RuleEngine.checkCircleGeofence(currentLocation, child.safeZone, radius);
+                                    alertMessage = `Child has left the safe circle area!`;
                                 }
 
-                                // =========================================
-                                // 5. GHI LỊCH SỬ BẰNG MONGODB (THAY THẾ KHỐI TRY..CATCH EPERM CŨ)
-                                // =========================================
-                                const newAlert = new Notification({
-                                    deviceId: deviceId,
-                                    childName: child.childName,
-                                    type: 'VIOLATION',
-                                    message: alertMessage,
-                                    time: new Date().toLocaleTimeString(),
-                                    date: new Date().toLocaleDateString(),
-                                    status: 'Unread'
-                                });
+                                // KÍCH HOẠT BÁO ĐỘNG NẾU VI PHẠM
+                                if (!isSafe) {
+                                    console.log(`[ALERT] 🔴 Warning: Child ${child.childName} has left the safe area!`);
+                                    
+                                    if (this.io) {
+                                        this.io.emit('securityAlert', {
+                                            deviceId: deviceId,
+                                            childName: child.childName,
+                                            message: alertMessage,
+                                            time: new Date().toLocaleTimeString()
+                                        });
+                                    }
 
-                                await newAlert.save(); // Phép màu là đây: Chỉ 1 dòng code, không bao giờ bị khóa file!
-                                console.log(`[Log] Đã lưu cảnh báo vi phạm của ${deviceId} vào MongoDB.`);
+                                    // =========================================
+                                    // 5. GHI LỊCH SỬ BẰNG MONGODB
+                                    // =========================================
+                                    const newAlert = new Notification({
+                                        deviceId: deviceId,
+                                        childName: child.childName,
+                                        type: 'VIOLATION',
+                                        message: alertMessage,
+                                        time: new Date().toLocaleTimeString(),
+                                        date: new Date().toLocaleDateString(),
+                                        status: 'Unread'
+                                    });
+
+                                    await newAlert.save(); 
+                                    console.log(`[Log] Saved violation alert for ${deviceId} into MongoDB.`);
+                                }
                             }
+                        } else {
+                            console.log(`[Ingest] ⚠️ Device ${deviceId} sent location data but is not linked to any parent.`);
                         }
-                    }
+                    } 
+                } else {
+                    console.log(`[MQTT Debug] Message from ${deviceId} does not contain GPS coordinates.`);
                 }
             } catch (error) {
-                console.error('[Ingest] 🔴 Error processing data:', error.message);
+                console.error('[Ingest] 🔴 Error:', error.message);
             }
         });
     }
