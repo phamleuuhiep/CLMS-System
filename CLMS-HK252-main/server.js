@@ -257,6 +257,7 @@ app.post('/parent/respond-request', async (req, res) => {
 });
 
 // Route vẽ Polygon và Circle hoàn chỉnh
+// Route vẽ Polygon và Circle hoàn chỉnh
 app.post('/parent/set-geofence', async (req, res) => {
     if (req.session.user?.role !== 'parent') return res.status(403).send('Từ chối.');
     const { childUsername, type, lat, lng, radius, polygonPoints } = req.body; 
@@ -265,7 +266,9 @@ app.post('/parent/set-geofence', async (req, res) => {
     if (parent) {
         const childIndex = parent.linkedChildren.findIndex(c => c.childUsername === childUsername);
         if (childIndex !== -1) {
-            parent.linkedChildren[childIndex].safeZone = { type: type };
+            
+            // Cập nhật từng thuộc tính thay vì gán đè toàn bộ Object để Mongoose dễ theo dõi
+            parent.linkedChildren[childIndex].safeZone.type = type;
 
             if (type === 'circle') {
                 parent.linkedChildren[childIndex].safeZone.lat = parseFloat(lat);
@@ -274,6 +277,11 @@ app.post('/parent/set-geofence', async (req, res) => {
             } else if (type === 'polygon') {
                 parent.linkedChildren[childIndex].safeZone.polygonPoints = polygonPoints;
             }
+            
+            // ---------------------------------------------------------
+            // BẮT BUỘC CÓ DÒNG NÀY: Báo cho Mongoose biết mảng đã thay đổi
+            // ---------------------------------------------------------
+            parent.markModified('linkedChildren'); 
             
             await parent.save();
             req.session.user = parent;

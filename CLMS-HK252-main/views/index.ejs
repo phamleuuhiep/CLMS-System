@@ -282,25 +282,64 @@
                     </button>`;
         }
 
+        // children.forEach(c => {
+        //     let safeCircle = null;
+        //     if(c.safeZone) {
+        //         if (c.safeZone.type === 'polygon' && c.safeZone.polygonPoints) {
+        //             const points = c.safeZone.polygonPoints.map(p => [p.lat, p.lng]);
+        //             safeCircle = L.polygon(points, { color: '#e67e22', fillColor: '#e67e22', fillOpacity: 0.2 }).addTo(map);
+        //         } else {
+        //             safeCircle = L.circle([c.safeZone.lat, c.safeZone.lng], { color: '#635BFF', fillColor: '#635BFF', fillOpacity: 0.1, radius: c.safeZone.radius }).addTo(map);
+        //         }
+        //     }
+
+        //     const startLat = c.safeZone ? c.safeZone.lat : 10.772393;
+        //     const startLng = c.safeZone ? c.safeZone.lng : 106.658145;
+            
+        //     const marker = L.marker([startLat, startLng]).addTo(map)
+        //                     .bindPopup(createPopupContent(c.childName, c.childUsername, "Waiting for GPS..."));
+
+        //     activeMarkers[c.childUsername] = { marker: marker, circle: safeCircle, name: c.childName };
+        // });
         children.forEach(c => {
             let safeCircle = null;
+            
+            // 1. Vẽ Vùng an toàn lên bản đồ
             if(c.safeZone) {
                 if (c.safeZone.type === 'polygon' && c.safeZone.polygonPoints) {
                     const points = c.safeZone.polygonPoints.map(p => [p.lat, p.lng]);
                     safeCircle = L.polygon(points, { color: '#e67e22', fillColor: '#e67e22', fillOpacity: 0.2 }).addTo(map);
-                } else {
+                } else if (c.safeZone.lat && c.safeZone.lng) {
                     safeCircle = L.circle([c.safeZone.lat, c.safeZone.lng], { color: '#635BFF', fillColor: '#635BFF', fillOpacity: 0.1, radius: c.safeZone.radius }).addTo(map);
                 }
             }
 
-            const startLat = c.safeZone ? c.safeZone.lat : 10.772393;
-            const startLng = c.safeZone ? c.safeZone.lng : 106.658145;
+            // ==========================================
+            // FIX LỖI: LOGIC TÌM TỌA ĐỘ KHỞI TẠO MARKER
+            // ==========================================
+            let startLat = 10.772393; // Tọa độ mặc định (ĐH Bách Khoa)
+            let startLng = 106.658145;
+
+            if (c.safeZone) {
+                if (c.safeZone.lat && c.safeZone.lng) {
+                    // Chế độ Point: Dùng luôn tâm hình tròn
+                    startLat = c.safeZone.lat;
+                    startLng = c.safeZone.lng;
+                } else if (c.safeZone.type === 'polygon' && c.safeZone.polygonPoints && c.safeZone.polygonPoints.length > 0) {
+                    // Chế độ Zone: Dùng tạm đỉnh đầu tiên của đa giác để ghim marker
+                    startLat = c.safeZone.polygonPoints[0].lat;
+                    startLng = c.safeZone.polygonPoints[0].lng;
+                }
+            }
             
+            // 3. Khởi tạo marker an toàn (không bị crash vì đã chắc chắn có tọa độ)
             const marker = L.marker([startLat, startLng]).addTo(map)
                             .bindPopup(createPopupContent(c.childName, c.childUsername, "Waiting for GPS..."));
 
+            // 4. Lưu marker vào mảng (Lúc này Socket.io mới có thể tìm thấy nó!)
             activeMarkers[c.childUsername] = { marker: marker, circle: safeCircle, name: c.childName };
         });
+
 
         // ==========================================
         // 1. CẤU HÌNH HỘP THOẠI (MODAL) VÀ API
@@ -323,6 +362,7 @@
                 inputs.style.display = 'block';
                 let html = '';
 
+                // Danh sách chọn trẻ em
                 if (options.choices && options.choices.length > 1) {
                     html += `<div class="input-label">Select Child:</div><select id="modal-child-select" class="modal-select">`;
                     options.choices.forEach((c, i) => { html += `<option value="${i}">${c.childName}</option>`; });
@@ -331,21 +371,25 @@
                     html += `<input type="hidden" id="modal-child-select" value="0">`;
                 }
 
-                let defaultRadius = options.defaultRadius || 1000;
-                let defaultUnit = 'm';
-                if (defaultRadius >= 1000 && defaultRadius % 1000 === 0) {
-                    defaultRadius = defaultRadius / 1000;
-                    defaultUnit = 'km';
+                // CHỈ HIỂN THỊ RADIUS NẾU KHÔNG ẨN (Dành cho Point-based)
+                if (!options.hideRadius) {
+                    let defaultRadius = options.defaultRadius || 1000;
+                    let defaultUnit = 'm';
+                    if (defaultRadius >= 1000 && defaultRadius % 1000 === 0) {
+                        defaultRadius = defaultRadius / 1000;
+                        defaultUnit = 'km';
+                    }
+
+                    html += `<div class="input-label">Safe Zone Radius:</div>
+                             <div class="radius-group">
+                                <input type="number" id="modal-radius-val" value="${defaultRadius}" min="1" required>
+                                <select id="modal-radius-unit">
+                                    <option value="m" ${defaultUnit === 'm' ? 'selected' : ''}>Meters (m)</option>
+                                    <option value="km" ${defaultUnit === 'km' ? 'selected' : ''}>Kilometers (km)</option>
+                                </select>
+                             </div>`;
                 }
 
-                html += `<div class="input-label">Safe Zone Radius:</div>
-                         <div class="radius-group">
-                            <input type="number" id="modal-radius-val" value="${defaultRadius}" min="1" required>
-                            <select id="modal-radius-unit">
-                                <option value="m" ${defaultUnit === 'm' ? 'selected' : ''}>Meters (m)</option>
-                                <option value="km" ${defaultUnit === 'km' ? 'selected' : ''}>Kilometers (km)</option>
-                            </select>
-                         </div>`;
                 inputs.innerHTML = html;
                 modal.classList.add('active');
 
@@ -354,15 +398,82 @@
                 btnConfirm.onclick = () => {
                     cleanup();
                     const childIdx = document.getElementById('modal-child-select').value;
-                    const radiusVal = parseFloat(document.getElementById('modal-radius-val').value);
-                    const unit = document.getElementById('modal-radius-unit').value;
-                    const finalRadius = unit === 'km' ? radiusVal * 1000 : radiusVal;
+                    let finalRadius = null;
+                    
+                    // Lấy giá trị radius nếu nó đang được hiển thị
+                    if (!options.hideRadius) {
+                        const radiusVal = parseFloat(document.getElementById('modal-radius-val').value);
+                        const unit = document.getElementById('modal-radius-unit').value;
+                        finalRadius = unit === 'km' ? radiusVal * 1000 : radiusVal;
+                    }
+                    
                     resolve({ confirmed: true, childIndex: childIdx, radius: finalRadius });
                 };
                 
                 btnCancel.onclick = () => { cleanup(); resolve({ confirmed: false }); };
             });
         }
+        // // ==========================================
+        // // 1. CẤU HÌNH HỘP THOẠI (MODAL) VÀ API
+        // // ==========================================
+        // function showModal(options) {
+        //     return new Promise((resolve) => {
+        //         const modal = document.getElementById('custom-modal');
+        //         const title = document.getElementById('modal-title');
+        //         const message = document.getElementById('modal-message');
+        //         const icon = document.getElementById('modal-icon-class');
+        //         const inputs = document.getElementById('modal-inputs');
+        //         const btnConfirm = document.getElementById('modal-confirm');
+        //         const btnCancel = document.getElementById('modal-cancel');
+
+        //         title.innerText = options.title || 'Thiết lập';
+        //         message.innerHTML = options.message || '';
+        //         icon.className = options.iconClass || 'fas fa-cog';
+                
+        //         inputs.innerHTML = '';
+        //         inputs.style.display = 'block';
+        //         let html = '';
+
+        //         if (options.choices && options.choices.length > 1) {
+        //             html += `<div class="input-label">Select Child:</div><select id="modal-child-select" class="modal-select">`;
+        //             options.choices.forEach((c, i) => { html += `<option value="${i}">${c.childName}</option>`; });
+        //             html += `</select>`;
+        //         } else {
+        //             html += `<input type="hidden" id="modal-child-select" value="0">`;
+        //         }
+
+        //         let defaultRadius = options.defaultRadius || 1000;
+        //         let defaultUnit = 'm';
+        //         if (defaultRadius >= 1000 && defaultRadius % 1000 === 0) {
+        //             defaultRadius = defaultRadius / 1000;
+        //             defaultUnit = 'km';
+        //         }
+
+        //         html += `<div class="input-label">Safe Zone Radius:</div>
+        //                  <div class="radius-group">
+        //                     <input type="number" id="modal-radius-val" value="${defaultRadius}" min="1" required>
+        //                     <select id="modal-radius-unit">
+        //                         <option value="m" ${defaultUnit === 'm' ? 'selected' : ''}>Meters (m)</option>
+        //                         <option value="km" ${defaultUnit === 'km' ? 'selected' : ''}>Kilometers (km)</option>
+        //                     </select>
+        //                  </div>`;
+        //         inputs.innerHTML = html;
+        //         modal.classList.add('active');
+
+        //         const cleanup = () => { modal.classList.remove('active'); };
+                
+        //         btnConfirm.onclick = () => {
+        //             cleanup();
+        //             const childIdx = document.getElementById('modal-child-select').value;
+        //             const radiusVal = parseFloat(document.getElementById('modal-radius-val').value);
+        //             const unit = document.getElementById('modal-radius-unit').value;
+        //             const finalRadius = unit === 'km' ? radiusVal * 1000 : radiusVal;
+        //             resolve({ confirmed: true, childIndex: childIdx, radius: finalRadius });
+        //         };
+                
+        //         btnCancel.onclick = () => { cleanup(); resolve({ confirmed: false }); };
+        //     });
+        // }
 
         window.setSafeZoneAtChild = async function(childUsername) {
             if(activeMarkers[childUsername]) {
@@ -419,7 +530,56 @@
         // ==========================================
         // 2. XỬ LÝ SỰ KIỆN CLICK BẢN ĐỒ (NGUYÊN BẢN)
         // ==========================================
+        // map.on('click', async function(e) {
+        //     // Hiển thị SweetAlert nếu chưa có thiết bị nào
+        //     if (children.length === 0) {
+        //         return Swal.fire({
+        //             icon: 'warning',
+        //             title: 'There are no devices!',
+        //             text: 'You have not linked any child devices yet. Please add a child device to set up a safe zone.',
+        //             confirmButtonColor: '#635BFF',
+        //             confirmButtonText: 'Add Child Device',
+        //             showCancelButton: true,
+        //             cancelButtonColor: '#e74c3c',
+        //             cancelButtonText: 'Cancel'
+        //         }).then((result) => {
+        //             if (result.isConfirmed) {
+        //                 window.location.href = '/add-child';
+        //             }
+        //         });
+        //     }
+
+        //     // Gọi Modal thiết lập Vùng an toàn hình tròn
+        //     const currentRadius = children[0].safeZone && children[0].safeZone.radius ? children[0].safeZone.radius : 1000;
+            
+        //     const result = await showModal({
+        //         title: 'Set the Safe Zone',
+        //         message: 'Change the safe zone center to the selected location and adjust the radius:',
+        //         iconClass: 'fas fa-map-marker-alt', 
+        //         choices: children, 
+        //         defaultRadius: currentRadius
+        //     });
+
+        //     if (result.confirmed) {
+        //         updateSafeZoneAPI(children[result.childIndex].childUsername, e.latlng.lat, e.latlng.lng, result.radius);
+        //     }
+        // });
+        // ==========================================
+        // 2. XỬ LÝ SỰ KIỆN CLICK BẢN ĐỒ
+        // ==========================================
         map.on('click', async function(e) {
+            // CHẶN SỰ KIỆN CLICK KHI ĐANG Ở CHẾ ĐỘ VẼ ĐA GIÁC (ZONE)
+            if (currentMode === 'polygon') {
+                // return Swal.fire({
+                //     icon: 'info',
+                //     title: 'Zone-based Mode',
+                //     text: 'Please use the drawing tools on the top left of the map to draw a polygon.',
+                //     confirmButtonColor: '#635BFF',
+                //     confirmButtonText: 'Got it'
+                // });
+                return;
+            }
+
             // Hiển thị SweetAlert nếu chưa có thiết bị nào
             if (children.length === 0) {
                 return Swal.fire({
@@ -457,6 +617,35 @@
         // ==========================================
         // XỬ LÝ SỰ KIỆN VẼ XONG ĐA GIÁC (GEOMAN)
         // ==========================================
+        // map.on('pm:create', async (e) => {
+        //     const layer = e.layer;
+        //     const latLngs = layer.getLatLngs()[0]; 
+        //     const polygonPoints = latLngs.map(p => ({ lat: p.lat, lng: p.lng }));
+
+        //     if (children.length === 0) {
+        //         layer.remove(); 
+        //         return Swal.fire({ icon: 'error', title: 'Oops...', text: 'There are no devices linked!' });
+        //     }
+
+        //     const result = await showModal({
+        //         title: 'Save Safe Zone Polygon',
+        //         message: 'Would you like to set this polygon as the new safe zone for your child?',
+        //         iconClass: 'fas fa-draw-polygon', choices: children
+        //     });
+
+        //     if (result.confirmed) {
+        //         const childId = children[result.childIndex].childUsername;
+        //         fetch('/parent/set-geofence', {
+        //             method: 'POST', headers: { 'Content-Type': 'application/json' },
+        //             body: JSON.stringify({ childUsername: childId, type: 'polygon', polygonPoints: polygonPoints })
+        //         }).then(res => {
+        //             if(res.ok) window.location.reload();
+        //         });
+        //     } else { layer.remove(); }
+        // });
+        // ==========================================
+        // XỬ LÝ SỰ KIỆN VẼ XONG ĐA GIÁC (GEOMAN)
+        // ==========================================
         map.on('pm:create', async (e) => {
             const layer = e.layer;
             const latLngs = layer.getLatLngs()[0]; 
@@ -470,7 +659,9 @@
             const result = await showModal({
                 title: 'Save Safe Zone Polygon',
                 message: 'Would you like to set this polygon as the new safe zone for your child?',
-                iconClass: 'fas fa-draw-polygon', choices: children
+                iconClass: 'fas fa-draw-polygon', 
+                choices: children,
+                hideRadius: true // TÙY CHỌN MỚI: Ẩn phần nhập bán kính
             });
 
             if (result.confirmed) {
@@ -481,7 +672,9 @@
                 }).then(res => {
                     if(res.ok) window.location.reload();
                 });
-            } else { layer.remove(); }
+            } else { 
+                layer.remove(); 
+            }
         });
         
 

@@ -92,10 +92,20 @@ class MqttReceiver {
                                 let isSafe = true;
                                 let alertMessage = '';
 
-                                if (child.safeZone.type === 'polygon' && child.safeZone.polygonPoints && child.safeZone.polygonPoints.length > 0) {
-                                    isSafe = RuleEngine.checkPolygonGeofence(currentLocation, child.safeZone.polygonPoints);
-                                    alertMessage = `Child has left the safe polygon area!`;
-                                } else if (child.safeZone.type === 'circle' && child.safeZone.lat && child.safeZone.lng) {
+                                // --- BỘ MÁY PHÂN TÍCH VÙNG AN TOÀN ĐA GIÁC ---
+                                if (child.safeZone.type === 'polygon') {
+                                    console.log(`[Geofence Debug] Đang kiểm tra Zone-based. Số lượng đỉnh: ${child.safeZone.polygonPoints ? child.safeZone.polygonPoints.length : 0}`);
+                                    
+                                    if (child.safeZone.polygonPoints && child.safeZone.polygonPoints.length > 0) {
+                                        isSafe = RuleEngine.checkPolygonGeofence(currentLocation, child.safeZone.polygonPoints);
+                                        console.log(`[Geofence Debug] Kết quả Zone-based (isSafe): ${isSafe}`);
+                                        alertMessage = `Child has left the safe polygon area!`;
+                                    } else {
+                                        console.log(`[Geofence Debug] ⚠️ Mảng polygon bị rỗng, bỏ qua kiểm tra!`);
+                                    }
+                                } 
+                                // --- BỘ MÁY PHÂN TÍCH VÙNG AN TOÀN HÌNH TRÒN ---
+                                else if (child.safeZone.type === 'circle' && child.safeZone.lat && child.safeZone.lng) {
                                     const radius = child.safeZone.radius || 1000;
                                     isSafe = RuleEngine.checkCircleGeofence(currentLocation, child.safeZone, radius);
                                     alertMessage = `Child has left the safe circle area!`;
@@ -114,9 +124,7 @@ class MqttReceiver {
                                         });
                                     }
 
-                                    // =========================================
                                     // 5. GHI LỊCH SỬ BẰNG MONGODB
-                                    // =========================================
                                     const newAlert = new Notification({
                                         deviceId: deviceId,
                                         childName: child.childName,
@@ -131,12 +139,13 @@ class MqttReceiver {
                                     console.log(`[Log] Saved violation alert for ${deviceId} into MongoDB.`);
                                 }
                             }
-                        } else {
+                        }
+                        else {
                             console.log(`[Ingest] ⚠️ Device ${deviceId} sent location data but is not linked to any parent.`);
                         }
                     } 
                 } else {
-                    console.log(`[MQTT Debug] Message from ${deviceId} does not contain GPS coordinates.`);
+                    console.log(`[MQTT Debug] Message from ${deviceId}`);
                 }
             } catch (error) {
                 console.error('[Ingest] 🔴 Error:', error.message);
